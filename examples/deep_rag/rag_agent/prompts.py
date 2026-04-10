@@ -1,171 +1,89 @@
 """Prompt templates for the Deep RAG agent.
 
-Three instruction sets that the agent receives:
-
-  DEEP_RAG_WORKFLOW_INSTRUCTIONS  — high-level 6-step workflow
-  DEEP_RAG_LOOP_INSTRUCTIONS      — detailed per-iteration decision rules
-  DEEP_RAG_ANSWER_FORMAT          — how to structure the final answer
+Optimized for speed: model-number funnel → specific dataset → fallback to all.
+No workplan. No file writing. No over-evaluation.
 """
 
 # ---------------------------------------------------------------------------
-# Workflow
+# Main workflow — lean 4-step funnel
 # ---------------------------------------------------------------------------
 
-DEEP_RAG_WORKFLOW_INSTRUCTIONS = """# Deep RAG Workflow
+DEEP_RAG_WORKFLOW_INSTRUCTIONS = """# Deep RAG — Fast Retrieval Mode
 
-You answer questions by *progressively* retrieving and synthesising document
-chunks from a RAGFlow knowledge base. You must NOT flood your own context
-with hundreds of chunks at once — instead, reveal them a few at a time.
+Answer questions directly. No planning. No file writing. Respond inline.
 
-## CRITICAL: Never fabricate dataset IDs
+## NEVER do these (they slow everything down)
+- NEVER call write_todos
+- NEVER call write_file for the answer
+- NEVER call think() or evaluate_answer() unless you are genuinely stuck
+- NEVER make more than 2 ragflow_retrieve() calls per question
+- NEVER make more than 1 get_next_chunks() call per question
 
-**You MUST call `ragflow_list_datasets()` before `ragflow_retrieve()`** unless
-the user has explicitly pasted real dataset IDs into their message.
-Dataset IDs are opaque UUIDs (e.g. `"3bcf5d12-4a1e-..."`) — they are never
-English words like `"technical"`, `"drawings"`, or `"documents"`.
-If you are unsure whether the IDs provided are real, call `ragflow_list_datasets()`
-first to verify.
+## 4-step funnel
 
-## Seven-step workflow
+### Step 1 — Extract model number (no tool, instant)
+Read the question. Extract any product / model identifier (e.g. "G10", "X-200", "ABC123").
+If none → write model_number = "" and skip to Step 2b.
 
-1. **Plan** — Create a todo list with write_todos. Break down multi-part
-   questions into independent sub-questions if needed.
+### Step 2 — Find dataset (1 tool call)
+**If model_number is not empty:**
+  Call ragflow_list_datasets(name_filter="<model_number>")
+  - Got 1+ matches → use those IDs as `dataset_ids` in Step 3  ← preferred path
+  - Got 0 matches  → use dataset_ids=[] (fallback to all) in Step 3
 
-2. **Discover datasets** — Call ragflow_list_datasets() to get real dataset IDs.
-   Pick the most relevant ones for the question (by name / description).
-   If the user already supplied valid UUIDs, skip this step.
+**If model_number is empty:**
+  Call ragflow_list_datasets() → pick the most relevant dataset(s) by name
 
-3. **Initial retrieval** — Call ragflow_retrieve() with:
-   - The user's question (or a focused sub-question)
-   - The REAL dataset_ids from step 2
-   - top_k = 6, batch_size = 64 (start narrow; the rest are buffered)
+### Step 3 — Retrieve (1 tool call, occasionally 2)
+Call ragflow_retrieve(dataset_ids=<from Step 2>, top_k=6, batch_size=32)
 
-4. **Draft answer** — Based only on the returned chunks, write an initial
-   answer. Cite each claim with [Chunk N | source_doc].
+- Chunks are relevant → go to Step 4
+- Chunks are empty or all off-topic AND you used a specific dataset_ids:
+  Retry ONCE with dataset_ids=[] (search all datasets, same question)
+  That retry counts as your second and final ragflow_retrieve call.
 
-5. **Evaluate** — Call evaluate_answer() to record:
-   - Your confidence level (high / medium / low)
-   - Any aspects of the question that are not yet covered
-   - The number of chunks used so far
+### Step 4 — Answer
+Read the returned chunks.
+- Chunks cover the question → ANSWER NOW (inline, no tool calls)
+- One specific detail is missing → call get_next_chunks(top_k=4) ONCE, then answer
+- Chunks are completely irrelevant → say "找不到相关资料" and stop
 
-6. **Progressive refinement** (repeat as needed):
-   - If confidence < high OR there are missing aspects:
-     a. Call get_next_chunks() to reveal the next batch from the buffer.
-     b. Incorporate new evidence into the answer.
-     c. Call evaluate_answer() again.
-   - If the buffer is exhausted and the answer is still insufficient:
-     Call ragflow_retrieve(page=N+1) to fetch a fresh set of chunks.
-   - Stop after 3 pages regardless.
+## Hard budget (enforced, no exceptions)
 
-7. **Finalise** — When confidence=high or after exhausting retrieval budget,
-   write the final answer to /rag_answer.md using write_file(), then
-   respond to the user with the answer and a source list.
+| Action                  | Max allowed |
+|-------------------------|-------------|
+| ragflow_list_datasets   | 1           |
+| ragflow_retrieve        | 2           |
+| get_next_chunks         | 1           |
+| think / evaluate_answer | 0 (avoid)   |
+| write_file              | 0           |
+| write_todos             | 0           |
 
-## Key constraints
-
-| Rule | Limit |
-|------|-------|
-| Chunks shown per get_next_chunks call | 4–6 |
-| Consecutive get_next_chunks calls before re-evaluating | max 2 |
-| Total ragflow_retrieve pages per question | max 3 |
-| Total retrieval iterations (across all pages) | max 10 |
+## Dataset ID rules
+Dataset IDs are UUIDs — never English words.
+Always get them from ragflow_list_datasets(). Never invent them.
 """
 
 
 # ---------------------------------------------------------------------------
-# Detailed loop instructions
-# ---------------------------------------------------------------------------
-
-DEEP_RAG_LOOP_INSTRUCTIONS = """# Deep RAG Agentic Loop — Decision Rules
-
-## After each chunk batch
-
-Use think() to reflect on:
-1. Which chunks are *actually relevant* to the question?
-2. What does the answer look like right now?
-3. What is still missing or uncertain?
-4. Is the next action get_next_chunks, ragflow_retrieve(page=N+1), or FINALIZE?
-
-## When to FINALIZE immediately
-
-- All parts of the question are answered with high confidence.
-- Multiple chunks corroborate the same facts.
-- You received the top chunks (score ≥ 0.7) and they fully address the question.
-
-## When to call get_next_chunks()
-
-- Answer is partially complete but one or two aspects are unresolved.
-- Top-ranked chunks were relevant but insufficient.
-- Buffer still has chunks (status message says "N chunks remain in buffer").
-
-## When to call ragflow_retrieve(page=N+1)
-
-- Buffer is exhausted (get_next_chunks returns "Buffer exhausted").
-- Chunks from the previous page were largely irrelevant — try a fresh batch.
-- You want to try a *different query phrasing* → pass a new `question` value.
-
-## When to STOP without a complete answer
-
-- Three pages retrieved and confidence is still "low" → answer with caveats.
-- The knowledge base does not contain relevant information → say so clearly.
-- The question is out of scope for the available datasets → say so.
-
-## Progressive disclosure examples
-
-**Scenario A — quick answer:**
-ragflow_retrieve(top_k=6)  →  evaluate(confidence=high)  →  FINALIZE
-
-**Scenario B — needs more evidence:**
-ragflow_retrieve(top_k=6)  →  evaluate(confidence=medium)
-  → get_next_chunks(top_k=5)  →  evaluate(confidence=high)  →  FINALIZE
-
-**Scenario C — exhaustive search:**
-ragflow_retrieve(page=1, top_k=6)  →  evaluate(confidence=low)
-  → get_next_chunks() × 2  →  evaluate(confidence=medium)
-  → ragflow_retrieve(page=2, top_k=6)  →  evaluate(confidence=high)  →  FINALIZE
-
-**Scenario D — rephrased query:**
-ragflow_retrieve(question="original", page=1)  →  low relevance
-  → think("chunks are off-topic; try narrower query")
-  → ragflow_retrieve(question="refined query", page=1)  →  FINALIZE
-"""
-
-
-# ---------------------------------------------------------------------------
-# Answer format
+# Answer format — concise, inline
 # ---------------------------------------------------------------------------
 
 DEEP_RAG_ANSWER_FORMAT = """# Answer Format
 
-When you have enough evidence to finalise:
+Respond directly in the chat. Keep it concise.
 
-1. Write the complete answer to `/rag_answer.md` with write_file().
-2. Structure:
+**Structure:**
+<Answer in clear prose, citing sources inline as [文档名]>
 
-```
-## Answer
+**Sources (simple list at the end):**
+- [1] 文档名 — chunk score: 0.91
+- [2] 文档名 — chunk score: 0.84
 
-<Your detailed, evidence-based answer in clear prose.>
-
-## Sources
-
-| # | Document | Chunk ID | Score |
-|---|----------|----------|-------|
-| 1 | doc_name  | chunk_id | 0.91  |
-| 2 | ...       | ...      | ...   |
-
-## Confidence: High / Medium / Low
-
-<Optional: note any remaining uncertainties>
-```
-
-3. Reply to the user with the answer content directly (not just a file path).
-
-## Citation style (inline)
-
-Use [N] inline where N corresponds to the Sources table:
-  "The regulation requires annual audits [1] and quarterly reports [2]."
-
-Never fabricate information — only cite what appears in the retrieved chunks.
-If a chunk only partially supports a claim, write "possibly" or "according to [N]".
+**Rules:**
+- Answer in the same language as the question (Chinese question → Chinese answer)
+- Only state what the chunks actually say; say "未找到" for missing info
+- No elaborate tables, no confidence ratings, no meta-commentary
+- If the question is about a drawing/view (正视图/前视图), describe what the chunk says
+  about that view and cite the document name
 """

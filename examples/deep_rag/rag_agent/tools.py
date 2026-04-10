@@ -163,7 +163,7 @@ def ragflow_retrieve(
     question: str,
     dataset_ids: list[str],
     top_k: int = 6,
-    batch_size: int = 64,
+    batch_size: int = 32,
     page: int = 1,
     similarity_threshold: float = 0.2,
     vector_similarity_weight: float = 0.3,
@@ -183,7 +183,7 @@ def ragflow_retrieve(
         dataset_ids: One or more RAGFlow knowledge-base / dataset IDs.
         top_k: Number of chunks to return immediately (exposed to LLM).
         batch_size: Total chunks fetched from RAGFlow per call (buffer size).
-                    Should be much larger than top_k (e.g. 64–128).
+                    Should be larger than top_k (default 32; use 64 for deeper search).
         page: Pagination index; increment to retrieve entirely new chunks.
         similarity_threshold: Minimum similarity score to include (0.0–1.0).
         vector_similarity_weight: Vector vs. keyword search blend (0.0–1.0).
