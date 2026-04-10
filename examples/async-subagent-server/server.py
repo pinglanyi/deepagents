@@ -37,6 +37,7 @@ from typing import Any
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
@@ -153,7 +154,11 @@ async def web_search(query: str) -> str:
 from deepagents import create_deep_agent  # noqa: E402
 
 _agent = create_deep_agent(
-    model=ChatAnthropic(model="claude-sonnet-4-5"),
+    model = ChatOpenAI(
+        model="deepseek-chat",
+        api_key=os.getenv("DEEPSEEK_API_KEY"),
+        base_url=os.getenv("DEEPSEEK_BASE_URL"),
+    ),
     system_prompt=(
         "You are a thorough research agent. Investigate topics using web search and produce "
         "a well-structured research summary (300–500 words). Cite sources where possible.\n\n"

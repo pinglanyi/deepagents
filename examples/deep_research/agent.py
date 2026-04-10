@@ -9,7 +9,9 @@ from datetime import datetime
 from langchain.chat_models import init_chat_model
 from langchain_google_genai import ChatGoogleGenerativeAI
 from deepagents import create_deep_agent
-
+from langchain_openai import ChatOpenAI
+from dotenv import load_dotenv
+load_dotenv()
 from research_agent.prompts import (
     RESEARCHER_INSTRUCTIONS,
     RESEARCH_WORKFLOW_INSTRUCTIONS,
@@ -44,11 +46,16 @@ research_sub_agent = {
     "tools": [tavily_search, think_tool],
 }
 
-# Model Gemini 3 
+# Model Gemini 3
 # model = ChatGoogleGenerativeAI(model="gemini-3-pro-preview", temperature=0.0)
 
 # Model Claude 4.5
-model = init_chat_model(model="anthropic:claude-sonnet-4-5-20250929", temperature=0.0)
+# model = init_chat_model(model="anthropic:claude-sonnet-4-5-20250929", temperature=0.0)
+model = ChatOpenAI(
+    model="deepseek-chat",
+    api_key=os.getenv("DEEPSEEK_API_KEY"),
+    base_url=os.getenv("DEEPSEEK_BASE_URL"),
+)
 
 # Create the agent
 agent = create_deep_agent(
