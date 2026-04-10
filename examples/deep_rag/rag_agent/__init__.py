@@ -11,12 +11,14 @@ from rag_agent.prompts import (
 from rag_agent.tools import (
     evaluate_answer,
     get_next_chunks,
+    ragflow_list_datasets,
     ragflow_retrieve,
     think,
 )
 
 __all__ = [
     # Tools
+    "ragflow_list_datasets",
     "ragflow_retrieve",
     "get_next_chunks",
     "evaluate_answer",

@@ -94,6 +94,71 @@ def _fmt_chunk(chunk: dict[str, Any], rank: int) -> str:
 # ---------------------------------------------------------------------------
 
 @tool(parse_docstring=True)
+def ragflow_list_datasets(name_filter: str = "") -> str:
+    """List all available knowledge-base datasets in RAGFlow.
+
+    ALWAYS call this tool first before ragflow_retrieve() whenever the user
+    has not explicitly provided dataset IDs. Never guess or fabricate dataset
+    IDs — only use IDs returned by this tool.
+
+    Args:
+        name_filter: Optional substring to filter dataset names (case-insensitive).
+                     Pass "" to list all datasets.
+
+    Returns:
+        Table of available datasets with their IDs, names, document counts,
+        and chunk counts. Use the `id` column values as `dataset_ids` in
+        ragflow_retrieve().
+    """
+    base_url, headers = _ragflow_base()
+
+    try:
+        resp = httpx.get(
+            f"{base_url}/api/v1/datasets",
+            headers=headers,
+            params={"page": 1, "page_size": 100},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.HTTPStatusError as exc:
+        return f"RAGFlow HTTP error {exc.response.status_code}: {exc.response.text[:400]}"
+    except Exception as exc:  # noqa: BLE001
+        return f"RAGFlow request failed: {exc}"
+
+    if data.get("code") != 0:
+        return f"RAGFlow API error: {data.get('message', 'unknown error')}"
+
+    datasets: list[dict] = data.get("data", [])
+    if not datasets:
+        return "No datasets found in RAGFlow. Create a knowledge base first."
+
+    # Optional filter
+    if name_filter:
+        datasets = [d for d in datasets if name_filter.lower() in d.get("name", "").lower()]
+        if not datasets:
+            return f"No datasets match filter '{name_filter}'. Remove the filter to see all."
+
+    lines = [
+        f"## Available RAGFlow Datasets ({len(datasets)} found)\n",
+        "| ID | Name | Documents | Chunks | Status |",
+        "|----|------|-----------|--------|--------|",
+    ]
+    for ds in datasets:
+        ds_id = ds.get("id", "—")
+        name = ds.get("name", "—")
+        doc_count = ds.get("document_count", ds.get("doc_num", "?"))
+        chunk_count = ds.get("chunk_count", ds.get("chunk_num", "?"))
+        status = ds.get("status", ds.get("parse_status", "—"))
+        lines.append(f"| `{ds_id}` | {name} | {doc_count} | {chunk_count} | {status} |")
+
+    lines.append(
+        "\nUse one or more values from the **ID** column as `dataset_ids` in ragflow_retrieve()."
+    )
+    return "\n".join(lines)
+
+
+@tool(parse_docstring=True)
 def ragflow_retrieve(
     question: str,
     dataset_ids: list[str],
