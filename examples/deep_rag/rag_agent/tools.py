@@ -14,32 +14,29 @@ Buffer lifecycle per agent run:
 from __future__ import annotations
 
 import os
-import threading
 from typing import Any, Literal
 
 import httpx
 from langchain_core.tools import tool
 
 # ---------------------------------------------------------------------------
-# Thread-local chunk buffer
-# Each thread (= one agent run in LangGraph) gets its own isolated buffer.
+# Global chunk buffer
+#
+# LangGraph runs each sync tool call in a thread-pool executor
+# (run_in_executor), so threading.local() does NOT work — ragflow_retrieve
+# writes in Thread-A while get_next_chunks reads in Thread-B, seeing an
+# empty buffer. A plain module-level dict is the correct fix for a
+# single-process deployment.
 # ---------------------------------------------------------------------------
-_local = threading.local()
-
-
-def _get_buffer() -> dict[str, Any]:
-    """Return the thread-local chunk buffer, initialising if absent."""
-    if not hasattr(_local, "buffer"):
-        _local.buffer = {
-            "chunks": [],
-            "offset": 0,
-            "total_in_ragflow": 0,
-            "question": "",
-            "dataset_ids": [],
-            "page": 1,
-            "loaded": False,
-        }
-    return _local.buffer
+_buffer: dict[str, Any] = {
+    "chunks": [],
+    "offset": 0,
+    "total_in_ragflow": 0,
+    "question": "",
+    "dataset_ids": [],
+    "page": 1,
+    "loaded": False,
+}
 
 
 def _reset_buffer(
@@ -50,15 +47,14 @@ def _reset_buffer(
     page: int,
     top_k: int,
 ) -> None:
-    """Overwrite the thread-local buffer with a fresh retrieval result."""
-    buf = _get_buffer()
-    buf["chunks"] = chunks
-    buf["offset"] = top_k  # first top_k already returned to LLM
-    buf["total_in_ragflow"] = total
-    buf["question"] = question
-    buf["dataset_ids"] = dataset_ids
-    buf["page"] = page
-    buf["loaded"] = True
+    """Overwrite the global buffer with a fresh retrieval result."""
+    _buffer["chunks"] = chunks
+    _buffer["offset"] = top_k  # first top_k already returned to LLM
+    _buffer["total_in_ragflow"] = total
+    _buffer["question"] = question
+    _buffer["dataset_ids"] = dataset_ids
+    _buffer["page"] = page
+    _buffer["loaded"] = True
 
 
 # ---------------------------------------------------------------------------
@@ -284,16 +280,14 @@ def get_next_chunks(top_k: int = 5) -> str:
     Returns:
         Next batch of chunks with scores/sources, plus remaining buffer count.
     """
-    buf = _get_buffer()
-
-    if not buf.get("loaded"):
+    if not _buffer.get("loaded"):
         return "Buffer is empty — call ragflow_retrieve() first."
 
-    chunks = buf["chunks"]
-    offset = buf["offset"]
+    chunks = _buffer["chunks"]
+    offset = _buffer["offset"]
 
     if offset >= len(chunks):
-        next_page = buf["page"] + 1
+        next_page = _buffer["page"] + 1
         return (
             f"Buffer exhausted ({len(chunks)} chunks processed). "
             f"Call ragflow_retrieve(page={next_page}) to fetch the next page."
@@ -301,7 +295,7 @@ def get_next_chunks(top_k: int = 5) -> str:
 
     end = min(offset + top_k, len(chunks))
     next_batch = chunks[offset:end]
-    buf["offset"] = end
+    _buffer["offset"] = end
     remaining = len(chunks) - end
 
     lines: list[str] = [
@@ -312,7 +306,7 @@ def get_next_chunks(top_k: int = 5) -> str:
     if remaining > 0:
         lines.append(f"\n**{remaining} chunks still in buffer** — call get_next_chunks() for more.")
     else:
-        next_page = buf["page"] + 1
+        next_page = _buffer["page"] + 1
         lines.append(
             f"\nBuffer exhausted. Call ragflow_retrieve(page={next_page}) for fresh results."
         )
