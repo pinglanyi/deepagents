@@ -11,15 +11,15 @@ Fast-retrieval mode:
 Persistence:
   - FilesystemBackend  → write_file / edit_file go to AGENT_DATA_DIR on disk
   - memory=["/AGENTS.md"] → cross-session long-term memory, loaded on every request
-  - Conversation checkpointing: managed by LangGraph Platform automatically.
-      Default runtime uses in-memory SQLite (lost on restart).
-      For persistent conversation history across restarts, set POSTGRES_URI plus
-      ONE of these in .env (see langgraph_api/config/_parse.py):
-        LANGGRAPH_CHECKPOINTER={"backend": "default"}   ← Option A (per-deployment)
-        LS_DEFAULT_CHECKPOINTER_BACKEND=default          ← Option B (platform-wide)
-      POSTGRES_URI alone is silently ignored without one of the above.
-      PREREQUISITE: langgraph-runtime-inmem must NOT be installed — if present it
-      overrides all env-var config and forces in-memory mode regardless.
+  - Conversation checkpointing: managed by the LangGraph runtime layer.
+      `langgraph dev` always uses langgraph_runtime_inmem — in-memory SQLite per
+      thread_id, lost on restart. POSTGRES_URI / LANGGRAPH_CHECKPOINTER /
+      LS_DEFAULT_CHECKPOINTER_BACKEND have NO effect under `langgraph dev` because
+      they are read by langgraph_runtime_postgres, which is closed-source and only
+      present inside the LangGraph Platform production Docker image (not on PyPI).
+      For persistent conversation history: deploy to LangGraph Platform (see
+      https://docs.langchain.com/langgraph-platform/deployment-options) or use
+      `uv run agent.py` (interactive terminal mode, manages its own checkpointer).
       DO NOT pass a custom checkpointer here — langgraph dev will refuse to start.
 
 Usage:
@@ -100,12 +100,12 @@ agent = create_deep_agent(
     system_prompt=SYSTEM_PROMPT,
     backend=backend,
     memory=["/AGENTS.md"],
-    # No checkpointer here — LangGraph Platform manages it automatically.
-    # langgraph dev [inmem]: in-memory SQLite per thread_id (lost on restart).
-    # For persistent Postgres storage: set POSTGRES_URI plus either
-    #   LANGGRAPH_CHECKPOINTER={"backend": "default"}   (per-deployment)
-    #   LS_DEFAULT_CHECKPOINTER_BACKEND=default          (platform-wide default)
-    # and ensure langgraph-runtime-inmem is NOT installed in the venv.
+    # No checkpointer here — the runtime layer manages it.
+    # `langgraph dev` always uses in-memory SQLite (langgraph_runtime_inmem).
+    # POSTGRES_URI and LANGGRAPH_CHECKPOINTER are read by langgraph_runtime_postgres,
+    # which only exists inside the LangGraph Platform Docker image — they have no
+    # effect under `langgraph dev`. For persistent storage, deploy to LangGraph
+    # Platform or run `uv run agent.py` for interactive terminal mode.
 )
 
 
