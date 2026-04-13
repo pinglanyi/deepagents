@@ -11,8 +11,8 @@ Fast-retrieval mode:
 Persistence:
   - FilesystemBackend → all write_file / edit_file calls go to AGENT_DATA_DIR on disk
   - memory=["/AGENTS.md"] → loaded into system prompt on every request (cross-session memory)
-  - Conversation history: managed by LangGraph Platform when using `langgraph dev`
-    (each thread_id keeps its own turn-by-turn history in Platform's SQLite)
+  - Conversation history: SqliteSaver via checkpointer.py → AGENT_DATA_DIR/checkpoints.db
+    (langgraph.json wires this up; each thread_id keeps its own turn-by-turn history)
 
 Usage:
   langgraph dev --port 8122   # LangGraph Studio with auto checkpointing
