@@ -11,7 +11,12 @@ dependencies = [
     "rich>=14.0.0",
     "deepagents>=0.2.6",
     "python-dotenv>=1.0.0",
-    "langgraph-cli[inmem]>=0.1.55",
+    # Use langgraph-cli WITHOUT [inmem] so POSTGRES_URI is respected.
+    # [inmem] installs langgraph-runtime-inmem which always uses in-memory
+    # SQLite and ignores POSTGRES_URI entirely.
+    "langgraph-cli>=0.1.55",
+    # Postgres driver required when POSTGRES_URI is set
+    "psycopg[binary]>=3.1.0",
 ]
 
 [tool.uv]
