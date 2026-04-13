@@ -9,21 +9,24 @@ Fast-retrieval mode:
   6. Answer inline — no planning, no file writing
 
 Persistence:
-  - FilesystemBackend → all write_file / edit_file calls go to AGENT_DATA_DIR on disk
-  - memory=["/AGENTS.md"] → loaded into system prompt on every request (cross-session memory)
-  - Conversation history: SqliteSaver via checkpointer.py → AGENT_DATA_DIR/checkpoints.db
-    (langgraph.json wires this up; each thread_id keeps its own turn-by-turn history)
+  - FilesystemBackend  → write_file / edit_file go to AGENT_DATA_DIR on disk
+  - memory=["/AGENTS.md"] → cross-session long-term memory, loaded on every request
+  - SqliteSaver checkpointer → conversation history in AGENT_DATA_DIR/checkpoints.db
+    Baked into the compiled graph so langgraph dev uses it automatically.
+    Location configurable via AGENT_DATA_DIR env var.
 
 Usage:
-  langgraph dev --port 8122   # LangGraph Studio with auto checkpointing
-  uv run agent.py             # interactive terminal (no checkpointing)
+  uv run langgraph dev --port 8122   # LangGraph Studio
+  uv run agent.py                    # interactive terminal
 """
 
 import os
+import sqlite3
 from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
@@ -37,28 +40,43 @@ from rag_agent.tools import get_next_chunks, ragflow_list_datasets, ragflow_retr
 load_dotenv()
 
 # ---------------------------------------------------------------------------
-# Persistent file storage
+# Persistent storage directory
 # ---------------------------------------------------------------------------
-# All write_file / edit_file / read_file calls go to this directory on disk.
-# - StateBackend (default) keeps files in graph state → lost on new thread
-# - FilesystemBackend writes to real disk → persists across sessions/threads
+# All file operations and checkpoints live under AGENT_DATA_DIR.
+# Change the location by setting AGENT_DATA_DIR in .env.
 
 AGENT_DATA_DIR = Path(os.getenv("AGENT_DATA_DIR", "./agent_data")).resolve()
 AGENT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Pre-create AGENTS.md so the agent can edit it without a write-first step.
+# ---------------------------------------------------------------------------
+# FilesystemBackend — write_file / edit_file go to disk, not graph state
+# ---------------------------------------------------------------------------
+
 _agents_md = AGENT_DATA_DIR / "AGENTS.md"
 if not _agents_md.exists():
     _agents_md.write_text(
         "# Agent Long-term Memory\n\n"
         "This file is loaded automatically at the start of every conversation.\n"
-        "Use edit_file('/AGENTS.md', old_string='...', new_string='...') to update it.\n\n"
+        "Update it with: read_file('/AGENTS.md') then edit_file('/AGENTS.md', ...)\n\n"
         "## User Preferences\n\n(none recorded yet)\n\n"
         "## Domain Knowledge\n\n(none recorded yet)\n",
         encoding="utf-8",
     )
 
 backend = FilesystemBackend(root_dir=AGENT_DATA_DIR, virtual_mode=True)
+
+# ---------------------------------------------------------------------------
+# SqliteSaver checkpointer — conversation history on disk
+# ---------------------------------------------------------------------------
+# Baked into the compiled graph. langgraph dev detects this and uses it
+# instead of its own in-memory checkpointer.
+# DB location: AGENT_DATA_DIR/checkpoints.db
+
+_conn = sqlite3.connect(
+    str(AGENT_DATA_DIR / "checkpoints.db"),
+    check_same_thread=False,  # langgraph calls from multiple threads
+)
+checkpointer = SqliteSaver(_conn)
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -91,7 +109,7 @@ agent = create_deep_agent(
     tools=[ragflow_list_datasets, ragflow_retrieve, get_next_chunks],
     system_prompt=SYSTEM_PROMPT,
     backend=backend,
-    # /AGENTS.md → AGENT_DATA_DIR/AGENTS.md on disk.
-    # Loaded into system prompt on every request → cross-session long-term memory.
     memory=["/AGENTS.md"],
+    checkpointer=checkpointer,
 )
+
