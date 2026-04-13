@@ -100,7 +100,10 @@ agent = create_deep_agent(
     memory=["/AGENTS.md"],
     # No checkpointer here — LangGraph Platform manages it automatically.
     # langgraph dev [inmem]: in-memory SQLite per thread_id (lost on restart).
-    # For persistent conversation history: set POSTGRES_URI in .env.
+    # For persistent conversation history across restarts, set BOTH in .env:
+    #   POSTGRES_URI=postgresql://user:password@localhost:5432/deeprag
+    #   LANGGRAPH_CHECKPOINTER={"backend": "default"}
+    # POSTGRES_URI alone is NOT enough — LANGGRAPH_CHECKPOINTER must also be set.
 )
 
 
