@@ -223,3 +223,4 @@ libs/cli/TEXTUAL_PROGRESS.md
 */tmp/.DS_Store
 
 CLAUDE.md
+examples/deep_rag/agent_data/

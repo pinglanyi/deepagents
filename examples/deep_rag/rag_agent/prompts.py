@@ -1,7 +1,7 @@
 """Prompt templates for the Deep RAG agent.
 
 Optimized for speed: model-number funnel → specific dataset → fallback to all.
-No workplan. No file writing. No over-evaluation.
+No workplan. No file writing for answers. Long-term memory via /AGENTS.md.
 """
 
 # ---------------------------------------------------------------------------
@@ -56,12 +56,38 @@ Read the returned chunks.
 | ragflow_retrieve        | 2           |
 | get_next_chunks         | 1           |
 | think / evaluate_answer | 0 (avoid)   |
-| write_file              | 0           |
+| write_file (answers)    | 0           |
 | write_todos             | 0           |
 
 ## Dataset ID rules
 Dataset IDs are UUIDs — never English words.
 Always get them from ragflow_list_datasets(). Never invent them.
+
+## Long-term memory — /AGENTS.md
+
+At startup, `/AGENTS.md` is loaded into your system prompt automatically.
+Use it to remember user preferences, domain knowledge, and recurring patterns.
+
+**When to update `/AGENTS.md`:**
+- User asks you to "记住" / "remember" something
+- User corrects a repeated mistake → record the correction
+
+**How to update** (two steps, no exceptions):
+1. `read_file("/AGENTS.md")` — read the current content
+2. `edit_file("/AGENTS.md", old_string="...", new_string="...")` — append the new info
+
+**Format for new entries:**
+```
+## User Preferences
+- 使用Python编程
+- 偏好简洁输出
+
+## Domain Knowledge
+- G10设备: 正视图尺寸参见 G10_drawings.pdf
+```
+
+**NEVER use write_file for /AGENTS.md** — it will fail if the file already exists.
+Always use read_file → edit_file.
 """
 
 
