@@ -11,14 +11,11 @@ Fast-retrieval mode:
 Persistence:
   - FilesystemBackend  → write_file / edit_file go to AGENT_DATA_DIR on disk
   - memory=["/AGENTS.md"] → cross-session long-term memory, loaded on every request
-  - Conversation checkpointing: managed by LangGraph Platform automatically.
-      Default runtime uses in-memory SQLite (lost on restart).
-      For persistent conversation history across restarts, set BOTH in .env:
-        POSTGRES_URI=postgresql://user:password@localhost:5432/deeprag
-        LANGGRAPH_CHECKPOINTER={"backend": "default"}
-      POSTGRES_URI alone is NOT enough — langgraph_api only activates Postgres
-      when LANGGRAPH_CHECKPOINTER is also present (see langgraph_api/config/_parse.py).
-      DO NOT pass a custom checkpointer here — langgraph dev will refuse to start.
+  - Conversation checkpointing: handled by checkpointer.py (loaded via langgraph.json).
+      SQLite (default): checkpoints stored in AGENT_DATA_DIR/checkpoints.sqlite.
+      Postgres: set POSTGRES_URI in .env and install the postgres extra:
+        uv pip install ".[postgres]"
+      DO NOT pass a custom checkpointer here — pass it via langgraph.json instead.
 
 Usage:
   uv run langgraph dev --port 8122   # LangGraph Studio
