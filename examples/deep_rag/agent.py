@@ -12,8 +12,12 @@ Persistence:
   - FilesystemBackend  → write_file / edit_file go to AGENT_DATA_DIR on disk
   - memory=["/AGENTS.md"] → cross-session long-term memory, loaded on every request
   - Conversation checkpointing: managed by LangGraph Platform automatically.
-      [inmem] runtime uses in-memory SQLite (lost on restart).
-      For disk persistence set POSTGRES_URI in .env (see .env.example).
+      Default runtime uses in-memory SQLite (lost on restart).
+      For persistent conversation history across restarts, set BOTH in .env:
+        POSTGRES_URI=postgresql://user:password@localhost:5432/deeprag
+        LANGGRAPH_CHECKPOINTER={"backend": "default"}
+      POSTGRES_URI alone is NOT enough — langgraph_api only activates Postgres
+      when LANGGRAPH_CHECKPOINTER is also present (see langgraph_api/config/_parse.py).
       DO NOT pass a custom checkpointer here — langgraph dev will refuse to start.
 
 Usage:
