@@ -11,12 +11,9 @@ dependencies = [
     "rich>=14.0.0",
     "deepagents>=0.2.6",
     "python-dotenv>=1.0.0",
-    # Use langgraph-cli WITHOUT [inmem] so POSTGRES_URI is respected.
-    # [inmem] installs langgraph-runtime-inmem which always uses in-memory
-    # SQLite and ignores POSTGRES_URI entirely.
+    # langgraph-cli provides `langgraph dev`.
+    # langgraph-checkpoint-sqlite is a transitive dep — always available for SQLite persistence.
     "langgraph-cli>=0.1.55",
-    # Postgres driver required when POSTGRES_URI is set
-    "psycopg[binary]>=3.1.0",
 ]
 
 [tool.uv]
@@ -26,6 +23,12 @@ override-dependencies = [
 ]
 
 [project.optional-dependencies]
+# Postgres-backed conversation history (set POSTGRES_URI in .env to activate).
+# Install with: uv pip install ".[postgres]"
+postgres = [
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary]>=3.1.0",
+]
 dev = [
     "mypy>=1.11.1",
     "ruff>=0.6.1",
