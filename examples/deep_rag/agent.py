@@ -11,9 +11,10 @@ Fast-retrieval mode:
 Persistence:
   - FilesystemBackend  → write_file / edit_file go to AGENT_DATA_DIR on disk
   - memory=["/AGENTS.md"] → cross-session long-term memory, loaded on every request
-  - SqliteSaver checkpointer → conversation history in AGENT_DATA_DIR/checkpoints.db
-    Baked into the compiled graph so langgraph dev uses it automatically.
-    Location configurable via AGENT_DATA_DIR env var.
+  - Conversation checkpointing: managed by LangGraph Platform automatically.
+      [inmem] runtime uses in-memory SQLite (lost on restart).
+      For disk persistence set POSTGRES_URI in .env (see .env.example).
+      DO NOT pass a custom checkpointer here — langgraph dev will refuse to start.
 
 Usage:
   uv run langgraph dev --port 8122   # LangGraph Studio
@@ -21,12 +22,10 @@ Usage:
 """
 
 import os
-import sqlite3
 from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langgraph.checkpoint.sqlite import SqliteSaver
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
@@ -42,8 +41,6 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # Persistent storage directory
 # ---------------------------------------------------------------------------
-# All file operations and checkpoints live under AGENT_DATA_DIR.
-# Change the location by setting AGENT_DATA_DIR in .env.
 
 AGENT_DATA_DIR = Path(os.getenv("AGENT_DATA_DIR", "./agent_data")).resolve()
 AGENT_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -64,19 +61,6 @@ if not _agents_md.exists():
     )
 
 backend = FilesystemBackend(root_dir=AGENT_DATA_DIR, virtual_mode=True)
-
-# ---------------------------------------------------------------------------
-# SqliteSaver checkpointer — conversation history on disk
-# ---------------------------------------------------------------------------
-# Baked into the compiled graph. langgraph dev detects this and uses it
-# instead of its own in-memory checkpointer.
-# DB location: AGENT_DATA_DIR/checkpoints.db
-
-_conn = sqlite3.connect(
-    str(AGENT_DATA_DIR / "checkpoints.db"),
-    check_same_thread=False,  # langgraph calls from multiple threads
-)
-checkpointer = SqliteSaver(_conn)
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -110,6 +94,9 @@ agent = create_deep_agent(
     system_prompt=SYSTEM_PROMPT,
     backend=backend,
     memory=["/AGENTS.md"],
-    checkpointer=checkpointer,
+    # No checkpointer here — LangGraph Platform manages it automatically.
+    # langgraph dev [inmem]: in-memory SQLite per thread_id (lost on restart).
+    # For persistent conversation history: set POSTGRES_URI in .env.
 )
+
 
