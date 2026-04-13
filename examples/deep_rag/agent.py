@@ -13,11 +13,13 @@ Persistence:
   - memory=["/AGENTS.md"] → cross-session long-term memory, loaded on every request
   - Conversation checkpointing: managed by LangGraph Platform automatically.
       Default runtime uses in-memory SQLite (lost on restart).
-      For persistent conversation history across restarts, set BOTH in .env:
-        POSTGRES_URI=postgresql://user:password@localhost:5432/deeprag
-        LANGGRAPH_CHECKPOINTER={"backend": "default"}
-      POSTGRES_URI alone is NOT enough — langgraph_api only activates Postgres
-      when LANGGRAPH_CHECKPOINTER is also present (see langgraph_api/config/_parse.py).
+      For persistent conversation history across restarts, set POSTGRES_URI plus
+      ONE of these in .env (see langgraph_api/config/_parse.py):
+        LANGGRAPH_CHECKPOINTER={"backend": "default"}   ← Option A (per-deployment)
+        LS_DEFAULT_CHECKPOINTER_BACKEND=default          ← Option B (platform-wide)
+      POSTGRES_URI alone is silently ignored without one of the above.
+      PREREQUISITE: langgraph-runtime-inmem must NOT be installed — if present it
+      overrides all env-var config and forces in-memory mode regardless.
       DO NOT pass a custom checkpointer here — langgraph dev will refuse to start.
 
 Usage:
@@ -100,10 +102,10 @@ agent = create_deep_agent(
     memory=["/AGENTS.md"],
     # No checkpointer here — LangGraph Platform manages it automatically.
     # langgraph dev [inmem]: in-memory SQLite per thread_id (lost on restart).
-    # For persistent conversation history across restarts, set BOTH in .env:
-    #   POSTGRES_URI=postgresql://user:password@localhost:5432/deeprag
-    #   LANGGRAPH_CHECKPOINTER={"backend": "default"}
-    # POSTGRES_URI alone is NOT enough — LANGGRAPH_CHECKPOINTER must also be set.
+    # For persistent Postgres storage: set POSTGRES_URI plus either
+    #   LANGGRAPH_CHECKPOINTER={"backend": "default"}   (per-deployment)
+    #   LS_DEFAULT_CHECKPOINTER_BACKEND=default          (platform-wide default)
+    # and ensure langgraph-runtime-inmem is NOT installed in the venv.
 )
 
 

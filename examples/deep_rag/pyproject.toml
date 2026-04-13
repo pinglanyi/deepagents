@@ -13,7 +13,10 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # Use langgraph-cli WITHOUT [inmem] so POSTGRES_URI is respected.
     # [inmem] installs langgraph-runtime-inmem which always uses in-memory
-    # SQLite and ignores POSTGRES_URI entirely.
+    # SQLite and ignores POSTGRES_URI entirely, even when LANGGRAPH_CHECKPOINTER
+    # or LS_DEFAULT_CHECKPOINTER_BACKEND is set.
+    # If you previously ran `uv add langgraph-cli[inmem]`, remove the package
+    # with: uv pip uninstall langgraph-runtime-inmem
     "langgraph-cli>=0.1.55",
     # Postgres driver required when POSTGRES_URI is set
     "psycopg[binary]>=3.1.0",
