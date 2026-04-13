@@ -3,6 +3,5 @@
   "graphs": {
     "deep_rag": "./agent.py:agent"
   },
-  "env": ".env",
-  "checkpointer": "./checkpointer.py:create_checkpointer"
+  "env": ".env"
 }
