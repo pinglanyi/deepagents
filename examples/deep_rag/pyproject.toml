@@ -1,19 +1,38 @@
 [project]
 name = "deep-rag-example"
-version = "0.1.0"
-description = "Deep RAG agent example — progressive chunk retrieval via RAGFlow"
+version = "1.0.0"
+description = "Deep RAG — multi-user commercial backend with RAGFlow knowledge-base management"
 requires-python = ">=3.11"
 dependencies = [
+    # ── Agent / LLM ───────────────────────────────────────────────────────────
+    "deepagents>=0.2.6",
     "langchain-openai>=1.0.2",
     "langchain-anthropic>=1.0.3",
-    "pydantic>=2.0.0",
     "httpx>=0.28.1",
-    "rich>=14.0.0",
-    "deepagents>=0.2.6",
     "python-dotenv>=1.0.0",
-    # langgraph-cli provides `langgraph dev`.
-    # langgraph-checkpoint-sqlite is a transitive dep — always available for SQLite persistence.
+    # LangGraph + PostgreSQL checkpointer (required — SQLite not used in prod)
     "langgraph-cli>=0.1.55",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary]>=3.1.0",
+
+    # ── Web server ────────────────────────────────────────────────────────────
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",   # file uploads + OAuth2 form login
+
+    # ── Database ORM ──────────────────────────────────────────────────────────
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.29.0",
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "email-validator>=2.0.0",
+
+    # ── Misc ──────────────────────────────────────────────────────────────────
+    "rich>=14.0.0",
 ]
 
 [tool.uv]
@@ -23,16 +42,9 @@ override-dependencies = [
 ]
 
 [project.optional-dependencies]
-# Postgres-backed conversation history (set POSTGRES_URI in .env to activate).
-# Install with: uv pip install ".[postgres]"
-postgres = [
-    "langgraph-checkpoint-postgres>=2.0.0",
-    "psycopg[binary]>=3.1.0",
-]
-# Production server (server.py). Install with: uv pip install ".[server]"
-server = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",
+# DB migration tooling — recommended for production
+migrations = [
+    "alembic>=1.13.0",
 ]
 dev = [
     "mypy>=1.11.1",
@@ -44,28 +56,14 @@ requires = ["setuptools>=73.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["rag_agent"]
+packages = ["rag_agent", "core", "models", "schemas", "routers", "services"]
 
 [tool.setuptools.package-data]
 "*" = ["py.typed"]
 
 [tool.ruff]
-lint.select = [
-    "E",
-    "F",
-    "I",
-    "D",
-    "D401",
-    "T201",
-    "UP",
-]
-lint.ignore = [
-    "UP006",
-    "UP007",
-    "UP035",
-    "D417",
-    "E501",
-]
+lint.select = ["E", "F", "I", "D", "D401", "T201", "UP"]
+lint.ignore = ["UP006", "UP007", "UP035", "D417", "E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "UP"]
