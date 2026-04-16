@@ -22,6 +22,21 @@ API:
     DELETE /threads                    delete ALL threads
     GET  /health                       liveness probe
 
+RAGFlow knowledge-base management (prefix: /ragflow):
+    POST   /ragflow/datasets                                      create dataset
+    GET    /ragflow/datasets                                      list datasets
+    PUT    /ragflow/datasets/{dataset_id}                         update dataset
+    DELETE /ragflow/datasets                                      delete datasets
+
+    POST   /ragflow/datasets/{id}/documents/upload                upload single doc
+    POST   /ragflow/datasets/{id}/documents/upload/batch          upload multiple docs
+    GET    /ragflow/datasets/{id}/documents                       list documents
+    PUT    /ragflow/datasets/{id}/documents/{doc_id}              update document
+    DELETE /ragflow/datasets/{id}/documents                       delete documents
+
+    POST   /ragflow/datasets/{id}/documents/parse                 start parsing
+    DELETE /ragflow/datasets/{id}/documents/parse                 stop parsing
+
 Thread ID:
     Pass ``thread_id`` in the request body to continue an existing conversation.
     Omit it to start a new conversation (a UUID is generated automatically).
@@ -45,6 +60,7 @@ from pydantic import BaseModel
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 from rag_agent.prompts import DEEP_RAG_ANSWER_FORMAT, DEEP_RAG_WORKFLOW_INSTRUCTIONS
+from rag_agent.ragflow_routes import router as ragflow_router
 from rag_agent.tools import get_next_chunks, ragflow_list_datasets, ragflow_retrieve
 
 load_dotenv()
@@ -298,6 +314,7 @@ class ThreadDetail(BaseModel):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="Deep RAG Agent", version="0.1.0", lifespan=_lifespan)
+app.include_router(ragflow_router)
 
 
 # ---------------------------------------------------------------------------
