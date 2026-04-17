@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +48,25 @@ async def register(req: UserRegister, db: AsyncSession = Depends(get_db)) -> Use
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.post(
+    "/token",
+    response_model=TokenResponse,
+    summary="OAuth2-compatible login (Swagger UI 'Authorize' button)",
+    description=(
+        "Accepts `application/x-www-form-urlencoded` with `username` (= email) and `password`. "
+        "This endpoint exists for Swagger UI / OAuth2 client compatibility. "
+        "For regular API usage prefer `POST /auth/login` with a JSON body."
+    ),
+)
+async def oauth2_token(
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    # OAuth2 spec uses 'username'; we treat it as the email field
+    fake_req = UserLogin(email=form.username, password=form.password)
+    return await login(fake_req, db)
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login and receive tokens")
