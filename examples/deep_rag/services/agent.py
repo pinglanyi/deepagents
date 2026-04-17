@@ -10,7 +10,13 @@ from core.config import settings
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 from rag_agent.prompts import DEEP_RAG_ANSWER_FORMAT, DEEP_RAG_WORKFLOW_INSTRUCTIONS
-from rag_agent.tools import get_next_chunks, ragflow_list_datasets, ragflow_retrieve
+from rag_agent.tools import (
+    complete_model_number,
+    get_kb_datasets_by_type,
+    get_next_chunks,
+    ragflow_list_datasets,
+    ragflow_retrieve,
+)
 
 _state: dict[str, Any] = {}
 
@@ -61,7 +67,13 @@ def init_agent(checkpointer: Any) -> None:
     )
     _state["agent"] = create_deep_agent(
         model=_build_model(),
-        tools=[ragflow_list_datasets, ragflow_retrieve, get_next_chunks],
+        tools=[
+            get_kb_datasets_by_type,
+            complete_model_number,
+            ragflow_list_datasets,
+            ragflow_retrieve,
+            get_next_chunks,
+        ],
         system_prompt=system_prompt,
         backend=backend,
         memory=["/AGENTS.md"],

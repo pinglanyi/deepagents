@@ -159,6 +159,49 @@ class ParseDocumentsRequest(BaseModel):
     document_ids: list[str] = Field(..., description="Document IDs to parse / cancel")
 
 
+class MetaFieldAlignRequest(BaseModel):
+    """Configuration for meta_fields alignment on a batch of documents.
+
+    ``field_mapping`` renames/remaps source keys to target keys:
+        {"src_key": "dst_key", "旧字段": "新字段"}
+
+    ``static_fields`` sets fixed values on every document:
+        {"series": "X系列", "language": "zh"}
+
+    ``field_mapping`` is applied first, then ``static_fields`` are merged in.
+    Other existing meta_fields not mentioned in ``field_mapping`` are preserved
+    unless ``drop_unmapped`` is True.
+
+    You can also pass ``chunk_method`` and ``parser_config`` to update
+    parsing settings for every document in the batch at the same time.
+    """
+
+    document_ids: list[str] = Field(
+        ..., description="IDs of documents to update. Must belong to the dataset."
+    )
+    field_mapping: dict[str, str] = Field(
+        default_factory=dict,
+        description="Rename meta_field keys: {old_key: new_key}. Values are preserved.",
+    )
+    static_fields: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Fixed meta_field key-value pairs applied to every document.",
+    )
+    drop_unmapped: bool = Field(
+        False,
+        description=(
+            "If True, drop any meta_field key not mentioned in field_mapping. "
+            "If False (default), unmapped keys are carried over unchanged."
+        ),
+    )
+    chunk_method: Optional[ChunkMethod] = Field(
+        None, description="Update parsing method for all documents (optional)."
+    )
+    parser_config: Optional[dict[str, Any]] = Field(
+        None, description="Update parser config for all documents (optional)."
+    )
+
+
 class DeleteDocumentsRequest(BaseModel):
     ids: list[str] = Field(..., description="Document IDs to delete")
 
@@ -613,6 +656,146 @@ async def delete_documents(
         raise HTTPException(status_code=500, detail=str(exc))
     _check(data)
     return {"message": "Documents deleted", "deleted_ids": req.ids}
+
+
+# ── Meta-fields alignment endpoint ───────────────────────────────────────────
+
+
+@router.post(
+    "/datasets/{dataset_id}/documents/meta-align",
+    summary="[Admin] Batch-align meta_fields (and optionally other fields) for multiple documents",
+)
+async def batch_meta_align(
+    dataset_id: str,
+    req: MetaFieldAlignRequest,
+    _=Depends(get_current_admin),
+) -> dict:
+    """Apply a field-mapping dict and/or static values to the meta_fields of
+    multiple documents in one call.
+
+    Workflow
+    --------
+    1. Fetch the current metadata for every ``document_id`` in the request.
+    2. For each document, build the new ``meta_fields``:
+       a. Start from current meta_fields.
+       b. Apply ``field_mapping`` (rename keys; keep values).
+       c. If ``drop_unmapped=True``, remove keys not in ``field_mapping``.
+       d. Merge in ``static_fields`` (overwriting existing values on conflict).
+    3. PATCH each document via RAGFlow PUT endpoint with the merged payload.
+
+    Use this endpoint to:
+    - Normalise inconsistent field names after bulk upload.
+    - Inject model/series tags into documents that were uploaded without them.
+    - Rename fields to match your retrieval filter schema.
+    - Update chunk_method / parser_config for a whole batch at once.
+
+    Example
+    -------
+    ```json
+    {
+      "document_ids": ["doc-1", "doc-2"],
+      "field_mapping": {"型号": "model", "系列": "series"},
+      "static_fields": {"language": "zh", "category": "product"},
+      "drop_unmapped": false,
+      "chunk_method": "naive"
+    }
+    ```
+    """
+    if not req.document_ids:
+        raise HTTPException(status_code=400, detail="document_ids must not be empty")
+    if not req.field_mapping and not req.static_fields and not req.chunk_method and not req.parser_config:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least one of: field_mapping, static_fields, chunk_method, parser_config",
+        )
+
+    base_url, hdrs = _headers()
+    _, json_hdrs = _headers("application/json")
+
+    results: list[dict[str, Any]] = []
+
+    for doc_id in req.document_ids:
+        # --- 1. Fetch current document metadata ---
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"{base_url}/api/v1/datasets/{dataset_id}/documents",
+                    headers=hdrs,
+                    params={"id": doc_id},
+                    timeout=15.0,
+                )
+                resp.raise_for_status()
+                doc_data = resp.json()
+        except Exception as exc:
+            results.append({"id": doc_id, "status": "error", "detail": str(exc)})
+            continue
+
+        raw = doc_data.get("data", {})
+        docs_list = raw.get("docs", raw) if isinstance(raw, dict) else raw
+        current_doc = next(
+            (d for d in docs_list if d.get("id") == doc_id),
+            {},
+        ) if isinstance(docs_list, list) else {}
+
+        current_meta: dict[str, Any] = current_doc.get("meta_fields") or {}
+
+        # --- 2. Build new meta_fields ---
+        if req.drop_unmapped:
+            new_meta: dict[str, Any] = {}
+            for old_key, new_key in req.field_mapping.items():
+                if old_key in current_meta:
+                    new_meta[new_key] = current_meta[old_key]
+        else:
+            # Carry over all existing keys first
+            new_meta = dict(current_meta)
+            # Apply renames: add under new key, remove old key
+            for old_key, new_key in req.field_mapping.items():
+                if old_key in new_meta:
+                    new_meta[new_key] = new_meta.pop(old_key)
+
+        # Merge static fields (override existing values)
+        new_meta.update(req.static_fields)
+
+        # --- 3. Build update payload ---
+        update_body: dict[str, Any] = {"meta_fields": new_meta}
+        if req.chunk_method:
+            update_body["chunk_method"] = req.chunk_method
+        if req.parser_config:
+            update_body["parser_config"] = req.parser_config
+
+        # --- 4. PATCH via RAGFlow PUT endpoint ---
+        try:
+            async with httpx.AsyncClient() as client:
+                upd = await client.put(
+                    f"{base_url}/api/v1/datasets/{dataset_id}/documents/{doc_id}",
+                    headers=json_hdrs,
+                    json=update_body,
+                    timeout=30.0,
+                )
+                upd.raise_for_status()
+                upd_data = upd.json()
+            if upd_data.get("code") != 0:
+                results.append({
+                    "id": doc_id,
+                    "status": "ragflow_error",
+                    "detail": upd_data.get("message", "unknown"),
+                    "new_meta_fields": new_meta,
+                })
+            else:
+                results.append({
+                    "id": doc_id,
+                    "status": "ok",
+                    "new_meta_fields": new_meta,
+                })
+        except Exception as exc:
+            results.append({"id": doc_id, "status": "error", "detail": str(exc)})
+
+    ok_count = sum(1 for r in results if r["status"] == "ok")
+    return {
+        "message": f"Processed {len(req.document_ids)} documents — {ok_count} updated successfully.",
+        "dataset_id": dataset_id,
+        "results": results,
+    }
 
 
 # ── Parsing endpoints ─────────────────────────────────────────────────────────
