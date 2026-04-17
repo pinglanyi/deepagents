@@ -19,12 +19,13 @@ Buffer lifecycle per agent run:
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Literal
 
 import httpx
 from langchain_core.tools import tool
+
+from core.config import settings
 
 # ---------------------------------------------------------------------------
 # Global chunk buffer
@@ -69,11 +70,10 @@ def _reset_buffer(
 # ---------------------------------------------------------------------------
 
 def _ragflow_base() -> tuple[str, dict[str, str]]:
-    """Return (base_url, headers) from environment variables."""
-    base_url = os.getenv("RAGFLOW_BASE_URL", "http://localhost:9380").rstrip("/")
-    api_key = os.getenv("RAGFLOW_API_KEY", "")
+    """Return (base_url, headers) from application settings."""
+    base_url = settings.ragflow_base_url.rstrip("/")
     return base_url, {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {settings.ragflow_api_key}",
         "Content-Type": "application/json",
     }
 
@@ -99,10 +99,10 @@ def _fmt_chunk(chunk: dict[str, Any], rank: int) -> str:
 def _get_kb_name(kb_type: str) -> str:
     """Return configured dataset name substring for a KB type."""
     mapping = {
-        "product": os.getenv("PRODUCT_KB_NAME", "product"),
-        "image": os.getenv("IMAGE_KB_NAME", "image"),
-        "file": os.getenv("FILE_KB_NAME", "file"),
-        "video": os.getenv("VIDEO_KB_NAME", "video"),
+        "product": settings.product_kb_name,
+        "image": settings.image_kb_name,
+        "file": settings.file_kb_name,
+        "video": settings.video_kb_name,
     }
     return mapping.get(kb_type, kb_type)
 
@@ -199,7 +199,7 @@ def complete_model_number(partial_model: str) -> str:
         Candidate full model numbers with their known aliases, and instructions
         to confirm with the user.
     """
-    aliases_file = os.getenv("MODEL_ALIASES_FILE", "")
+    aliases_file = settings.model_aliases_file
 
     if not aliases_file or not Path(aliases_file).exists():
         return (
