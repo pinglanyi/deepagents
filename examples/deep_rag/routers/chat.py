@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import settings
 from core.database import get_db
 from core.deps import get_current_user
 from models.thread import Thread
@@ -87,7 +88,10 @@ async def chat(
     thread = await _get_or_create_thread(
         req.thread_id, req.message, current_user, db
     )
-    config = {"configurable": {"thread_id": str(thread.id)}}
+    config = {
+        "configurable": {"thread_id": str(thread.id)},
+        "recursion_limit": settings.agent_recursion_limit,
+    }
 
     result = await get_agent().ainvoke(
         {"messages": [{"role": "user", "content": req.message}]},
@@ -123,7 +127,10 @@ async def chat_stream(
     thread = await _get_or_create_thread(
         req.thread_id, req.message, current_user, db
     )
-    config = {"configurable": {"thread_id": str(thread.id)}}
+    config = {
+        "configurable": {"thread_id": str(thread.id)},
+        "recursion_limit": settings.agent_recursion_limit,
+    }
 
     async def _generate():
         yield (

@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     deep_rag_model: str = "deepseek-chat"
     deep_rag_api_key: str = ""
     deep_rag_base_url: str = ""
+    # LangGraph recursion limit per agent turn. Each graph node (LLM call,
+    # tool call, middleware step) counts as one step. 50 is enough for the
+    # deepagents middleware stack + up to ~8 tool calls per turn.
+    agent_recursion_limit: int = 50
 
     # ── RAGFlow ───────────────────────────────────────────────────────────────
     ragflow_base_url: str = "http://localhost:9380"
