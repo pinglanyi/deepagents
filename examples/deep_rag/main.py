@@ -79,9 +79,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from core.config import settings
 from core.database import engine
+
+# Arbitrary fixed integer — used as the PostgreSQL session-level advisory lock key
+# to serialise schema creation across multiple workers on startup.
+_SCHEMA_LOCK_ID = 0x44455052_41474442  # "DEPRAGDB" in hex
 
 # Import all models so SQLAlchemy registers them before create_all
 import models  # noqa: F401 — side-effect import
@@ -93,12 +98,25 @@ from services.agent import init_agent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Server startup: create DB tables and initialise the agent."""
-    # Create all tables (idempotent — safe to run on every start).
-    # For production use Alembic migrations instead.
+    # Create all tables — guarded by a PostgreSQL advisory lock so that
+    # concurrent workers (uvicorn --workers N / gunicorn) don't race on
+    # CREATE TABLE and crash with a pg_type UniqueViolationError.
+    # The lock is session-scoped: released automatically when the
+    # connection is returned to the pool at the end of this block.
     from models.base import Base  # noqa: PLC0415
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(
+            text("SELECT pg_advisory_lock(:lock_id)"),
+            {"lock_id": _SCHEMA_LOCK_ID},
+        )
+        try:
+            await conn.run_sync(Base.metadata.create_all)
+        finally:
+            await conn.execute(
+                text("SELECT pg_advisory_unlock(:lock_id)"),
+                {"lock_id": _SCHEMA_LOCK_ID},
+            )
 
     # Initialise LangGraph agent with a shared PostgreSQL checkpointer
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver  # noqa: PLC0415
