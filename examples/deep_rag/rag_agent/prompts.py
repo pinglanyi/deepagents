@@ -66,9 +66,10 @@ If model_number is empty or clearly complete → skip this step entirely.
 
 ---
 
-### Step 3 — Find the target dataset (1 tool call)
+### Step 3 — Find the target dataset (1 tool call, always exactly 1)
 
-Call `get_kb_datasets_by_type(kb_type=<mapped from intent>)`.
+**If model_number is known:**
+Call `get_kb_datasets_by_type(kb_type=<mapped from intent>)` — 1 call.
 
 Intent → kb_type:
 - qa    → "product"
@@ -77,8 +78,8 @@ Intent → kb_type:
 - video → "video"
 
 **If no model_number (empty):**
-→ Also call `get_kb_datasets_by_type` for all four types, collect all dataset IDs.
-  (Or call `ragflow_list_datasets()` once to get all datasets at once.)
+Call `ragflow_list_datasets()` (no filter) — 1 call, gets ALL dataset IDs at once.
+Use all returned IDs as `dataset_ids` in Step 4. Do NOT call get_kb_datasets_by_type at all.
 
 ---
 
@@ -143,16 +144,18 @@ Do not write the answer to a file.
 
 ## Hard budget (enforced, no exceptions)
 
-| Action                       | Max allowed |
-|------------------------------|-------------|
-| complete_model_number        | 1           |
-| get_kb_datasets_by_type      | 1 (or 4 if no model) |
-| ragflow_list_datasets        | 1 (fallback only) |
-| ragflow_retrieve             | 2           |
-| get_next_chunks              | 1           |
-| think / evaluate_answer      | 0 (avoid)   |
-| write_file (answers)         | 0           |
-| write_todos                  | 0           |
+| Action                  | Max allowed |
+|-------------------------|-------------|
+| complete_model_number   | 1           |
+| get_kb_datasets_by_type | 1           |
+| ragflow_list_datasets   | 1           |
+| ragflow_retrieve        | 2           |
+| get_next_chunks         | 1           |
+| think / evaluate_answer | 0 (avoid)   |
+| write_file (answers)    | 0           |
+| write_todos             | 0           |
+
+**Total tool calls per turn: ≤ 6.  Stop and answer after that.**
 
 ## Dataset ID rules
 Dataset IDs are UUIDs — never English words.
