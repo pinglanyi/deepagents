@@ -32,6 +32,18 @@ class Settings(BaseSettings):
     ragflow_base_url: str = "http://localhost:9380"
     ragflow_api_key: str = ""
 
+    # Knowledge base name substrings — used to identify each KB type by dataset name.
+    # A dataset whose name contains the substring is treated as that KB type.
+    product_kb_name: str = "product"   # product Q&A KB (has meta_fields: model/series)
+    image_kb_name: str = "image"       # image library (image URL, description)
+    file_kb_name: str = "file"         # document/file library (file URL, description)
+    video_kb_name: str = "video"       # video library (video URL, description)
+
+    # Path to a JSON file that maps full model numbers to known aliases/abbreviations.
+    # Format: {"aliases": {"FULL_MODEL": ["alias1", "alias2"], ...}}
+    # Leave empty to skip model completion.
+    model_aliases_file: str = ""
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     cors_origins: list[str] = ["*"]
 

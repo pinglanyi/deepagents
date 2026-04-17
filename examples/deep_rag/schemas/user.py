@@ -52,6 +52,25 @@ class UserUpdate(BaseModel):
     new_password: str | None = Field(None, min_length=8, max_length=128)
 
 
+class AdminUserCreate(BaseModel):
+    """Admin-only: create a user account directly (bypasses public registration)."""
+
+    email: EmailStr
+    username: str = Field(min_length=3, max_length=50)
+    password: str = Field(min_length=8, max_length=128)
+    is_active: bool = True
+    is_admin: bool = False
+
+    @field_validator("username")
+    @classmethod
+    def username_valid(cls, v: str) -> str:
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError(
+                "Username must contain only letters, digits, underscores, or hyphens"
+            )
+        return v
+
+
 class AdminUserUpdate(BaseModel):
     """Admin-only fields (superset of UserUpdate, no current_password check)."""
 

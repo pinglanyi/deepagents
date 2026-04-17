@@ -13,7 +13,7 @@ from core.deps import get_current_admin, get_current_user
 from core.security import hash_password, verify_password
 from models.thread import Thread
 from models.user import User
-from schemas.user import AdminUserUpdate, UserOut, UserStats, UserUpdate
+from schemas.user import AdminUserCreate, AdminUserUpdate, UserOut, UserStats, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -72,6 +72,43 @@ async def delete_me(
 
 
 # ── Admin-only endpoints ──────────────────────────────────────────────────────
+
+
+@router.post(
+    "",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="[Admin] Create a user account directly",
+)
+async def admin_create_user(
+    req: AdminUserCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> User:
+    """Create a user without going through the public /auth/register flow.
+
+    Useful for provisioning accounts in bulk or creating admin accounts
+    without exposing them to self-registration.
+    """
+    dup_email = await db.execute(select(User).where(User.email == req.email))
+    if dup_email.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already in use")
+
+    dup_username = await db.execute(select(User).where(User.username == req.username))
+    if dup_username.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Username already taken")
+
+    user = User(
+        email=req.email,
+        username=req.username,
+        hashed_password=hash_password(req.password),
+        is_active=req.is_active,
+        is_admin=req.is_admin,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.get(
