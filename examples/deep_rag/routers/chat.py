@@ -125,10 +125,12 @@ async def chat_stream(
     )
     config = {"configurable": {"thread_id": str(thread.id)}}
 
+    def sse(data: dict) -> str:
+        return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
     async def _generate():
-        yield (
-            f"data: {json.dumps({'thread_id': str(thread.id), 'thread_title': thread.title})}\n\n"
-        )
+        yield sse({'thread_id': str(thread.id), 'thread_title': thread.title})
+
         try:
             async for event in get_agent().astream_events(
                 {"messages": [{"role": "user", "content": req.message}]},
@@ -139,16 +141,16 @@ async def chat_stream(
                     chunk = event["data"]["chunk"]
                     text = _extract_text(getattr(chunk, "content", ""))
                     if text:
-                        yield f"data: {json.dumps({'text': text})}\n\n"
+                        yield sse({'text': text})
         except Exception as exc:  # noqa: BLE001
-            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            yield sse({'error': str(exc)})
         finally:
             # Update thread stats even for streams (best-effort)
             try:
                 await _touch_thread(thread, req.message, db)
             except Exception:  # noqa: BLE001
                 pass
-        yield f"data: {json.dumps({'done': True})}\n\n"
+        yield sse({'done': True})
 
     return StreamingResponse(
         _generate(),
