@@ -28,9 +28,21 @@ from typing import Any, Literal, Optional
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
+from core.database import get_db
 from core.deps import get_current_admin, get_current_user
+from core.media_helpers import (
+    add_index_chunk,
+    check_duplicate_filename,
+    construct_doc_url,
+    cross_ref_to_file_kb,
+    delete_media_record,
+    detect_kb_type,
+    fetch_dataset_name,
+    save_media_record,
+)
 
 router = APIRouter(prefix="/ragflow", tags=["RAGFlow"])
 
@@ -348,9 +360,18 @@ async def upload_document(
     meta_fields: Optional[str] = Form(
         None, description="JSON object of arbitrary key-value metadata"
     ),
+    skip_duplicate_check: bool = Form(
+        False, description="Set True to allow re-uploading a filename already in this dataset"
+    ),
     _=Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Upload a file and optionally set its parsing method, config, and metadata.
+
+    For file / image / video / product KB datasets this endpoint will also:
+    - Auto-create a ``{name, url}`` index chunk on the uploaded document.
+    - For product KB uploads, additionally add a cross-reference entry to the file KB.
+    - Record the upload in the local MediaIndex table for deduplication queries.
 
     After upload the document is ready for parsing. Trigger parsing via
     ``POST /ragflow/datasets/{id}/documents/parse``.
@@ -360,7 +381,20 @@ async def upload_document(
     filename = display_name or file.filename or "document"
     content_type = file.content_type or "application/octet-stream"
 
-    # Step 1 — upload
+    # Duplicate check before uploading
+    if not skip_duplicate_check:
+        existing = await check_duplicate_filename(db, filename, dataset_id)
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"File '{filename}' already exists in this dataset "
+                    f"(doc_id={existing.doc_id}). "
+                    "Pass skip_duplicate_check=true to force re-upload."
+                ),
+            )
+
+    # Step 1 — upload to RAGFlow
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -414,11 +448,57 @@ async def upload_document(
         except Exception as exc:
             update_warnings.append(str(exc))
 
+    # Step 3 — media index: detect KB type, create index chunk, cross-reference
+    media_info: dict[str, Any] = {}
+    if doc_id:
+        dataset_name = await fetch_dataset_name(base_url, hdrs, dataset_id)
+        kb_type = detect_kb_type(dataset_name)
+
+        if kb_type:
+            doc_url = construct_doc_url(base_url, doc_id)
+
+            # Add {name, url} index chunk to the uploaded document
+            chunk_id = await add_index_chunk(base_url, dataset_id, doc_id, filename, doc_url, kb_type)
+            media_info["index_chunk_id"] = chunk_id
+            media_info["doc_url"] = doc_url
+            media_info["kb_type"] = kb_type
+
+            # For product KB: also register in the file KB
+            linked_file_doc_id: str | None = None
+            linked_file_dataset_id: str | None = None
+            if kb_type == "product":
+                cross = await cross_ref_to_file_kb(base_url, hdrs, filename, doc_url, doc_id)
+                if "warning" in cross:
+                    update_warnings.append(cross["warning"])
+                else:
+                    linked_file_doc_id = cross.get("file_kb_doc_id")
+                    linked_file_dataset_id = cross.get("file_kb_dataset_id")
+                    media_info["file_kb_doc_id"] = linked_file_doc_id
+                    media_info["file_kb_dataset_id"] = linked_file_dataset_id
+
+            # Persist to local MediaIndex
+            try:
+                await save_media_record(
+                    db,
+                    filename=filename,
+                    url=doc_url,
+                    doc_id=doc_id,
+                    dataset_id=dataset_id,
+                    kb_type=kb_type,
+                    chunk_id=chunk_id,
+                    linked_file_doc_id=linked_file_doc_id,
+                    linked_file_dataset_id=linked_file_dataset_id,
+                )
+            except Exception as exc:
+                update_warnings.append(f"MediaIndex save failed: {exc}")
+
     result: dict[str, Any] = {
         "message": "Document uploaded successfully",
         "document": doc,
         "dataset_id": dataset_id,
     }
+    if media_info:
+        result["media_index"] = media_info
     if update_warnings:
         result["update_warnings"] = update_warnings
     return result
@@ -441,9 +521,16 @@ async def upload_documents_batch(
     parser_config: Optional[str] = Form(
         None, description="JSON string of parsing config applied to all files"
     ),
+    skip_duplicate_check: bool = Form(
+        False, description="Set True to skip per-file duplicate filename checks"
+    ),
     _=Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Upload multiple files sharing the same chunk_method and parser_config.
+
+    Each uploaded document automatically gets a ``{name, url}`` index chunk.
+    Product KB uploads are also cross-referenced into the file KB.
 
     To apply different settings per file use the single-upload endpoint or
     call the update endpoint afterwards.
@@ -452,10 +539,26 @@ async def upload_documents_batch(
         raise HTTPException(status_code=400, detail="At least one file is required")
 
     base_url, hdrs = _headers()
-    file_tuples = [
-        (f.filename or "document", await f.read(), f.content_type or "application/octet-stream")
-        for f in files
-    ]
+
+    # Pre-read all files and run duplicate checks
+    file_tuples: list[tuple[str, bytes, str]] = []
+    update_warnings: list[str] = []
+    for f in files:
+        fname = f.filename or "document"
+        if not skip_duplicate_check:
+            existing = await check_duplicate_filename(db, fname, dataset_id)
+            if existing:
+                update_warnings.append(
+                    f"Skipped duplicate '{fname}' (doc_id={existing.doc_id})"
+                )
+                continue
+        file_tuples.append((fname, await f.read(), f.content_type or "application/octet-stream"))
+
+    if not file_tuples:
+        raise HTTPException(
+            status_code=409,
+            detail="All files are duplicates. Pass skip_duplicate_check=true to force.",
+        )
 
     try:
         async with httpx.AsyncClient() as client:
@@ -476,7 +579,6 @@ async def upload_documents_batch(
     docs: list[dict] = data.get("data", [])
 
     # Bulk metadata update if requested
-    update_warnings: list[str] = []
     if docs and any([chunk_method, parser_config]):
         parsed_cfg: Any = None
         if parser_config:
@@ -510,11 +612,59 @@ async def upload_documents_batch(
         except Exception as exc:
             update_warnings.append(str(exc))
 
+    # Media indexing: add {name, url} chunks and persist MediaIndex records
+    dataset_name = await fetch_dataset_name(base_url, hdrs, dataset_id)
+    kb_type = detect_kb_type(dataset_name)
+    media_results: list[dict[str, Any]] = []
+
+    if kb_type and docs:
+        for doc in docs:
+            doc_id: str | None = doc.get("id")
+            doc_filename: str = doc.get("name", "")
+            if not doc_id:
+                continue
+
+            doc_url = construct_doc_url(base_url, doc_id)
+            chunk_id = await add_index_chunk(
+                base_url, dataset_id, doc_id, doc_filename, doc_url, kb_type
+            )
+
+            linked_file_doc_id: str | None = None
+            linked_file_dataset_id: str | None = None
+            if kb_type == "product":
+                cross = await cross_ref_to_file_kb(base_url, hdrs, doc_filename, doc_url, doc_id)
+                if "warning" in cross:
+                    update_warnings.append(cross["warning"])
+                else:
+                    linked_file_doc_id = cross.get("file_kb_doc_id")
+                    linked_file_dataset_id = cross.get("file_kb_dataset_id")
+
+            try:
+                await save_media_record(
+                    db,
+                    filename=doc_filename,
+                    url=doc_url,
+                    doc_id=doc_id,
+                    dataset_id=dataset_id,
+                    kb_type=kb_type,
+                    chunk_id=chunk_id,
+                    linked_file_doc_id=linked_file_doc_id,
+                    linked_file_dataset_id=linked_file_dataset_id,
+                )
+            except Exception as exc:
+                update_warnings.append(f"MediaIndex save failed for {doc_filename}: {exc}")
+
+            media_results.append(
+                {"doc_id": doc_id, "filename": doc_filename, "url": doc_url, "chunk_id": chunk_id}
+            )
+
     result: dict[str, Any] = {
         "message": f"{len(docs)} document(s) uploaded successfully",
         "documents": docs,
         "dataset_id": dataset_id,
     }
+    if media_results:
+        result["media_index"] = {"kb_type": kb_type, "indexed": media_results}
     if update_warnings:
         result["update_warnings"] = update_warnings
     return result
@@ -638,6 +788,7 @@ async def delete_documents(
     dataset_id: str,
     req: DeleteDocumentsRequest,
     _=Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     base_url, hdrs = _headers("application/json")
     try:
@@ -655,6 +806,11 @@ async def delete_documents(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     _check(data)
+
+    # Clean up MediaIndex records for deleted documents
+    for doc_id in req.ids:
+        await delete_media_record(db, doc_id)
+
     return {"message": "Documents deleted", "deleted_ids": req.ids}
 
 
