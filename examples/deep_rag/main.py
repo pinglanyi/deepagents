@@ -92,6 +92,7 @@ _SCHEMA_LOCK_ID = 0x44455052_41474442  # "DEPRAGDB" in hex
 import models  # noqa: F401 — side-effect import
 
 from routers import auth, chat, ragflow, threads, users
+from routers.media import router as media_router
 from services.agent import init_agent
 
 
@@ -155,6 +156,7 @@ app.include_router(users.router)
 app.include_router(chat.router)
 app.include_router(threads.router)
 app.include_router(ragflow.router)
+app.include_router(media_router, prefix="/ragflow")
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
