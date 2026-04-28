@@ -34,10 +34,16 @@ def detect_kb_type(dataset_name: str) -> str | None:
         return "product"
     if settings.image_kb_name.lower() in name_lower:
         return "image"
-    if settings.file_kb_name.lower() in name_lower:
-        return "file"
     if settings.video_kb_name.lower() in name_lower:
         return "video"
+    if settings.file_kb_name.lower() in name_lower:
+        return "file"
+    if settings.general_kb_name.lower() in name_lower:
+        return "general"
+    if settings.program_kb_name.lower() in name_lower:
+        return "program"
+    if settings.experience_kb_name.lower() in name_lower:
+        return "experience"
     return None
 
 
@@ -48,6 +54,9 @@ def kb_name_for_type(kb_type: str) -> str:
         "image": settings.image_kb_name,
         "file": settings.file_kb_name,
         "video": settings.video_kb_name,
+        "general": settings.general_kb_name,
+        "program": settings.program_kb_name,
+        "experience": settings.experience_kb_name,
     }.get(kb_type, kb_type)
 
 
