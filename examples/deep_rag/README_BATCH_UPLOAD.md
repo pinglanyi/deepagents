@@ -2,7 +2,7 @@
 
 ## 概述
 
-提供两个 API 端点，根据 JSON 清单（manifest）批量上传文件到 RAGFlow 知识库，支持为每个文件单独指定：
+提供 `POST /ragflow/batch-upload` 端点，根据 JSON 清单（manifest）批量上传文件到 RAGFlow 知识库，支持为每个文件单独指定：
 - **目标知识库** (knowledge_base)
 - **元数据字段** (meta_fields，如 series / model / machine_type / customer / date)
 - **解析方法** (chunk_method: naive / table / manual / qa / paper / book / …)
@@ -124,20 +124,9 @@ curl -X POST http://localhost:8123/ragflow/batch-upload \
 
 ---
 
-## 两个端点对比
+## API 参考
 
-| | `POST /ragflow/batch-upload` | `POST /ragflow/batch-upload/upload` |
-|---|---|---|
-| 文件来源 | 服务器本地磁盘（递归搜索） | 客户端直接上传（multipart） |
-| Content-Type | `application/json` | `multipart/form-data` |
-| manifest 传法 | `manifest_path`（JSON 文件路径）或 `manifest`（内联数组） | `manifest_file`（上传 .json 文件）或 `manifest`（JSON 字符串） |
-| 适用场景 | 文件已在服务器上，文件夹可任意嵌套 | 文件在本地电脑，随请求一起发送 |
-| 递归搜索 | 是 — 自动遍历所有子文件夹 | 否 — 按文件名精确匹配上传的文件 |
-
----
-
-## 端点 1：服务器端路径上传（`POST /ragflow/batch-upload`）
-
+**端点**：`POST /ragflow/batch-upload`
 **认证**：Admin（`Authorization: Bearer <token>`）
 **Content-Type**：`application/json`
 
@@ -203,85 +192,6 @@ folder_path=/data/ragflow_files, file_name="产品信息表.xlsx"
   1. /data/ragflow_files/产品信息表.xlsx          ← 先看根目录
   2. /data/ragflow_files/产品库/产品信息表.xlsx    ← 再遍历子目录
   3. /data/ragflow_files/归档/2024/产品信息表.xlsx ← 任意深度都能找到
-```
-
----
-
-## 端点 2：客户端文件上传（`POST /ragflow/batch-upload/upload`）
-
-**认证**：Admin（`Authorization: Bearer <token>`）
-**Content-Type**：`multipart/form-data`
-
-### 表单字段
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `files` | file (可重复) | 是 | 要上传的文件，可多次使用 |
-| `manifest_file` | file | 二选一 | 上传一个 `.json` 清单文件 |
-| `manifest` | string | 二选一 | JSON 字符串格式的清单 |
-| `skip_duplicate_check` | string | 否 | `"true"` / `"false"` |
-| `auto_parse` | string | 否 | `"true"` / `"false"` |
-
-### 方式 A：上传 manifest.json 文件（推荐）
-
-```bash
-curl -X POST http://localhost:8123/ragflow/batch-upload/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "files=@产品信息表-260107WF.xlsx" \
-  -F "files=@震雄ES650卧式用户手册.pdf" \
-  -F "files=@经验库--品管事件处理表-251204.xlsx" \
-  -F "files=@程序库2025-12-18.xlsx" \
-  -F "files=@EST产品尺寸、重量(2023.2.20).pdf" \
-  -F "files=@液压卧式注塑机机器配置对照表-20240102.xlsx" \
-  -F "manifest_file=@manifest.json" \
-  -F "skip_duplicate_check=false" \
-  -F "auto_parse=true"
-```
-
-### 方式 B：manifest 内联字符串
-
-```bash
-curl -X POST http://localhost:8123/ragflow/batch-upload/upload \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "files=@产品信息表.xlsx" \
-  -F "files=@用户手册.pdf" \
-  -F 'manifest=[{"file_name":"产品信息表.xlsx","knowledge_base":"产品库","chunk_method":"table","meta":{"model":"ES260"}},{"file_name":"用户手册.pdf","knowledge_base":"产品库","chunk_method":"manual","meta":{"series":"ES"}}]' \
-  -F "auto_parse=true"
-```
-
-### Python 示例
-
-```python
-import json
-import requests
-
-url = "http://localhost:8123/ragflow/batch-upload/upload"
-headers = {"Authorization": "Bearer YOUR_ACCESS_TOKEN"}
-
-# 方式 A：上传 manifest.json 文件
-with open("manifest.json", "rb") as mf:
-    files = [
-        ("files", open("产品信息表.xlsx", "rb")),
-        ("files", open("用户手册.pdf", "rb")),
-        ("manifest_file", ("manifest.json", mf, "application/json")),
-    ]
-    resp = requests.post(url, headers=headers, files=files,
-                         data={"auto_parse": "true"})
-
-# 方式 B：内联 JSON
-manifest = [
-    {"file_name": "产品信息表.xlsx", "knowledge_base": "产品库",
-     "chunk_method": "table", "meta": {"model": "ES260"}},
-]
-files = [
-    ("files", open("产品信息表.xlsx", "rb")),
-]
-data = {
-    "manifest": json.dumps(manifest, ensure_ascii=False),
-    "auto_parse": "true",
-}
-resp = requests.post(url, headers=headers, files=files, data=data)
-print(resp.json())
 ```
 
 ---
@@ -479,7 +389,7 @@ BATCH_UPLOAD_COOLDOWN_SECONDS=2.0   # 文件间冷却间隔（秒，0 表示不�
 2. **递归搜索**：文件可以放在 `folder_path` 的任意子目录中，系统会自动找到。隐藏文件夹（`.git` 等）会被跳过
 3. **同名文件**：如果多个子目录中有同名文件，使用找到的第一个。建议尽量保持文件名唯一
 4. **meta 字段 null**：值为 `null` 的字段会被自动剔除，不会写入 RAGFlow
-5. **权限**：两个端点都需要 admin token
+5. **权限**：端点需要 admin token
 6. **重复上传**：默认开启重名检测，传 `skip_duplicate_check=true` 可强制重传
 7. **大文件**：扫描件 PDF 等大文件解析可能较慢，单文件最长等待 5 分钟。超时可适当调大文件间冷却间隔
 8. **冷却调优**：RAGFlow 性能充足时可设 `BATCH_UPLOAD_COOLDOWN_SECONDS=0` 加速；资源紧张时可加大该值

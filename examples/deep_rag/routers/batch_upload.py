@@ -1,18 +1,11 @@
 """Batch upload router — upload files to RAGFlow KBs from a dictionary manifest.
 
-Two endpoints are provided:
-
-1. ``POST /ragflow/batch-upload`` (JSON body)
-   Uses a *server-side* folder_path — files are read from the server's local disk.
-
-2. ``POST /ragflow/batch-upload/upload`` (multipart/form-data)
-   Accepts files uploaded directly from the client, plus a manifest JSON string.
-   Callers do NOT need server filesystem access.
-
-Both endpoints accept a manifest describing per-file target knowledge base,
-chunk method, and metadata.  After uploading to the matching RAGFlow dataset
-they apply per-file settings, trigger parsing, and wait until every document
-is fully parsed (with retries on failure).
+Endpoint: ``POST /ragflow/batch-upload`` (JSON body)
+   Uses a *server-side* folder_path — files are read from the server's local disk
+   with recursive directory traversal. Accepts a manifest describing per-file target
+   knowledge base, chunk method, and metadata. After uploading to the matching
+   RAGFlow dataset they apply per-file settings, trigger parsing, and wait until
+   every document is fully parsed (with retries on failure).
 """
 
 from __future__ import annotations
@@ -24,7 +17,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -672,157 +665,6 @@ async def batch_upload(
                 dataset_name=dataset_name,
                 auto_parse=req.auto_parse,
                 skip_duplicate_check=req.skip_duplicate_check,
-                base_url=base_url,
-                hdrs=hdrs,
-                db=db,
-            )
-            results.append(result)
-
-    return _build_response(results)
-
-
-# ── Endpoint 2 — client-side file upload (multipart/form-data) ───────────────
-
-
-@router.post(
-    "/batch-upload/upload",
-    summary="[Admin] Batch-upload with files sent from the client (multipart)",
-)
-async def batch_upload_client(
-    files: list[UploadFile] = File(..., description="Files to upload (matched to manifest by filename)"),
-    manifest: Optional[str] = Form(
-        None,
-        description="JSON string of the manifest array. "
-        "Either this or manifest_file is required.",
-    ),
-    manifest_file: Optional[UploadFile] = File(
-        None, description="Upload a .json manifest file (alternative to the manifest string)"
-    ),
-    skip_duplicate_check: bool = Form(
-        False, description="Skip per-file duplicate-filename checks"
-    ),
-    auto_parse: bool = Form(
-        True, description="Trigger + wait for parsing after upload"
-    ),
-    _=Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db),
-) -> BatchUploadResponse:
-    """Upload files **directly from the client** together with a JSON manifest.
-
-    Two ways to provide the manifest:
-    - **manifest_file**: upload a ``.json`` file
-    - **manifest**: JSON string inline
-
-    Request format (multipart/form-data):
-
-    - **files**: one or more file parts (field name ``files``, repeated)
-    - **manifest_file**: (optional) a .json file upload containing the manifest array
-    - **manifest**: (optional) JSON string — array of objects
-    - **skip_duplicate_check** — bool (default false)
-    - **auto_parse** — bool (default true)
-
-    Example curl::
-
-        curl -X POST http://host:8123/ragflow/batch-upload/upload \\
-          -H "Authorization: Bearer <token>" \\
-          -F "files=@产品信息表.xlsx" \\
-          -F "files=@用户手册.pdf" \\
-          -F "manifest_file=@manifest.json" \\
-          -F "skip_duplicate_check=false" \\
-          -F "auto_parse=true"
-    """
-    # ── Resolve manifest ───────────────────────────────────────────────────
-    if manifest is not None and manifest_file is not None:
-        raise HTTPException(status_code=400, detail="Provide manifest OR manifest_file, not both")
-    if manifest is None and manifest_file is None:
-        raise HTTPException(status_code=400, detail="Provide either manifest or manifest_file")
-
-    if manifest_file:
-        if manifest_file.filename and not manifest_file.filename.endswith(".json"):
-            raise HTTPException(status_code=422, detail="manifest_file must be a .json file")
-        raw_text = (await manifest_file.read()).decode("utf-8")
-        try:
-            manifest_items_raw = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=422, detail=f"Invalid JSON in manifest file: {exc}")
-    else:
-        try:
-            manifest_items_raw = json.loads(manifest)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=422, detail=f"manifest is not valid JSON: {exc}")
-
-    if not isinstance(manifest_items_raw, list) or len(manifest_items_raw) == 0:
-        raise HTTPException(status_code=422, detail="manifest must be a non-empty JSON array")
-
-    parsed_manifest: list[ManifestItem] = []
-    parse_errors: list[str] = []
-    for idx, obj in enumerate(manifest_items_raw):
-        try:
-            parsed_manifest.append(ManifestItem(**obj))
-        except Exception as exc:
-            parse_errors.append(f"manifest[{idx}]: {exc}")
-    if parse_errors:
-        raise HTTPException(status_code=422, detail="; ".join(parse_errors))
-
-    # ── Build filename → UploadFile lookup ─────────────────────────────────
-    # RAGFlow requires unique filenames; if the client sends duplicates the
-    # last one wins (same behaviour as a dict overwrite).
-    file_map: dict[str, tuple[bytes, str]] = {}
-    for f in files:
-        fname = f.filename or "document"
-        content = await f.read()
-        file_map[fname] = (content, f.content_type or "application/octet-stream")
-
-    # ── Resolve KBs ────────────────────────────────────────────────────────
-    base_url, hdrs = _headers()
-    dataset_cache = await _resolve_all_datasets(base_url, hdrs, parsed_manifest)
-
-    # ── Process each manifest item ─────────────────────────────────────────
-    results: list[FileResult] = []
-
-    sem = _get_semaphore()
-    async with sem:
-        for idx, item in enumerate(parsed_manifest):
-            # Check file was uploaded
-            file_data = file_map.get(item.file_name)
-            if file_data is None:
-                results.append(FileResult(
-                    file_name=item.file_name,
-                    knowledge_base=item.knowledge_base,
-                    status="not_found",
-                    message=f"Manifest references '{item.file_name}' but no uploaded file "
-                            f"with that name was found. Received: {sorted(file_map.keys())}",
-                ))
-                continue
-
-            file_bytes, content_type = file_data
-
-            dataset_id, dataset_name = dataset_cache[item.knowledge_base]
-            if not dataset_id:
-                results.append(FileResult(
-                    file_name=item.file_name,
-                    knowledge_base=item.knowledge_base,
-                    status="error",
-                    message=f"No RAGFlow dataset found matching '{item.knowledge_base}' "
-                            f"(searched for '{KB_NAME_TO_SEARCH.get(item.knowledge_base, item.knowledge_base)}')",
-                ))
-                continue
-
-            # Cooldown between files to let RAGFlow breathe
-            if idx > 0 and settings.batch_upload_cooldown_seconds > 0:
-                await asyncio.sleep(settings.batch_upload_cooldown_seconds)
-
-            result = await _process_one_file(
-                file_name=item.file_name,
-                file_bytes=file_bytes,
-                content_type=content_type,
-                knowledge_base=item.knowledge_base,
-                chunk_method=item.chunk_method,
-                meta=item.meta,
-                dataset_id=dataset_id,
-                dataset_name=dataset_name,
-                auto_parse=auto_parse,
-                skip_duplicate_check=skip_duplicate_check,
                 base_url=base_url,
                 hdrs=hdrs,
                 db=db,
