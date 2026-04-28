@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     # Gives RAGFlow breathing room to start parsing before the next upload hits.
     batch_upload_cooldown_seconds: float = 2.0
 
+    # ── MinIO / S3 (RAGFlow built-in MinIO) ──────────────────────────────────
+    # These credentials are used to generate presigned download URLs for files
+    # stored in RAGFlow's MinIO backend. Leave access_key empty to fall back
+    # to the RAGFlow preview URL (backward-compatible behaviour).
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_secure: bool = False
+    minio_presigned_expiry_seconds: int = 3600  # 1 hour
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     cors_origins: list[str] = ["*"]
 

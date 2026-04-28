@@ -430,6 +430,7 @@ async def _process_one_file(
     doc_list = data.get("data", [])
     doc = (doc_list[0] if isinstance(doc_list, list) and doc_list else doc_list) or {}
     doc_id: str | None = doc.get("id")
+    doc_location: str | None = doc.get("location")
     if not doc_id:
         return FileResult(
             file_name=file_name,
@@ -474,7 +475,9 @@ async def _process_one_file(
 
     # ── Media indexing ────────────────────────────────────────────────────
     kb_type = detect_kb_type(dataset_name or "")
-    doc_url = construct_doc_url(base_url, doc_id)
+    doc_url = construct_doc_url(
+        base_url, doc_id, dataset_id=dataset_id, location=doc_location,
+    )
 
     if kb_type:
         chunk_id = await add_index_chunk(

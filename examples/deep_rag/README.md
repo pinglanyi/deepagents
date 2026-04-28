@@ -122,6 +122,21 @@ asyncio.run(main())
 | `RAGFLOW_BASE_URL` | `http://localhost:9380` | RAGFlow server URL |
 | `RAGFLOW_API_KEY` | — | RAGFlow API key |
 
+### MinIO / S3 (RAGFlow built-in)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MINIO_ENDPOINT` | `localhost:9000` | MinIO (S3) endpoint |
+| `MINIO_ACCESS_KEY` | — | MinIO access key (empty = fallback to RAGFlow preview URL) |
+| `MINIO_SECRET_KEY` | — | MinIO secret key |
+| `MINIO_SECURE` | `false` | Use HTTPS for MinIO |
+| `MINIO_PRESIGNED_EXPIRY_SECONDS` | `3600` | Presigned URL validity (seconds) |
+
+RAGFlow internally stores all uploaded documents in MinIO. When MinIO
+credentials are configured, the system generates presigned download URLs
+pointing directly to source files, usable as `<img src>`, `<video src>`,
+or `<a href>` on the frontend.
+
 Find your dataset IDs in the RAGFlow UI under **Knowledge Base → Dataset**.
 
 ### LLM

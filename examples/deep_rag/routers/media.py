@@ -147,7 +147,9 @@ async def _upload_to_kb(
         if not doc_id:
             continue
 
-        doc_url = construct_doc_url(base_url, doc_id)
+        doc_url = construct_doc_url(
+            base_url, doc_id, dataset_id=target_dataset_id, location=doc.get("location"),
+        )
         chunk_id = await add_index_chunk(
             base_url, target_dataset_id, doc_id, doc_filename, doc_url, kb_type
         )
@@ -579,7 +581,9 @@ async def reindex_media(
                     skipped += 1
                     continue
 
-                doc_url = construct_doc_url(base_url, doc_id)
+                doc_url = construct_doc_url(
+                    base_url, doc_id, dataset_id=ds_id, location=doc.get("location"),
+                )
                 doc_filename = doc.get("name", doc_id)
 
                 # Skip internal cross-reference documents created by this system

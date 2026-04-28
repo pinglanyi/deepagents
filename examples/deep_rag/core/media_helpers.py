@@ -7,9 +7,11 @@ and routers/media.py (type-specific unified upload endpoints).
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from typing import Any
 
 import httpx
+from minio import Minio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,9 +20,46 @@ from core.config import settings
 
 # ── URL construction ──────────────────────────────────────────────────────────
 
+# Lazily-initialised MinIO client (None if minio is not configured).
+_minio_client: Minio | None = None
 
-def construct_doc_url(base_url: str, doc_id: str) -> str:
-    """Build the canonical URL for a RAGFlow document."""
+
+def _get_minio_client() -> Minio | None:
+    """Return a configured MinIO client, or None if credentials are not set."""
+    global _minio_client
+    if _minio_client is None and settings.minio_access_key:
+        _minio_client = Minio(
+            endpoint=settings.minio_endpoint,
+            access_key=settings.minio_access_key,
+            secret_key=settings.minio_secret_key,
+            secure=settings.minio_secure,
+        )
+    return _minio_client
+
+
+def construct_doc_url(
+    base_url: str,
+    doc_id: str,
+    *,
+    dataset_id: str | None = None,
+    location: str | None = None,
+) -> str:
+    """Build a download URL for a RAGFlow document.
+
+    When MinIO is configured and *location* + *dataset_id* are provided, returns
+    a MinIO presigned ``get_object`` URL pointing directly to the source file.
+    Otherwise falls back to the RAGFlow document preview URL.
+    """
+    client = _get_minio_client()
+    if client is not None and location and dataset_id:
+        try:
+            return client.presigned_get_object(
+                bucket_name=dataset_id,
+                object_name=location,
+                expires=timedelta(seconds=settings.minio_presigned_expiry_seconds),
+            )
+        except Exception:
+            pass  # fall through to the legacy preview URL on any MinIO error
     return f"{base_url.rstrip('/')}/api/v1/document/preview?doc_id={doc_id}"
 
 

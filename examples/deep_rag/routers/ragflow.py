@@ -455,7 +455,9 @@ async def upload_document(
         kb_type = detect_kb_type(dataset_name)
 
         if kb_type:
-            doc_url = construct_doc_url(base_url, doc_id)
+            doc_url = construct_doc_url(
+                base_url, doc_id, dataset_id=dataset_id, location=doc.get("location"),
+            )
 
             # Add {name, url} index chunk to the uploaded document
             chunk_id = await add_index_chunk(base_url, dataset_id, doc_id, filename, doc_url, kb_type)
@@ -624,7 +626,9 @@ async def upload_documents_batch(
             if not doc_id:
                 continue
 
-            doc_url = construct_doc_url(base_url, doc_id)
+            doc_url = construct_doc_url(
+                base_url, doc_id, dataset_id=dataset_id, location=doc.get("location"),
+            )
             chunk_id = await add_index_chunk(
                 base_url, dataset_id, doc_id, doc_filename, doc_url, kb_type
             )

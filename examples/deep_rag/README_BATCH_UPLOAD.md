@@ -214,7 +214,7 @@ folder_path=/data/ragflow_files, file_name="产品信息表.xlsx"
       "dataset_id": "def456...",
       "dataset_name": "产品库",
       "parse_status": "DONE",
-      "doc_url": "http://10.32.1.172:9222/api/v1/document/preview?doc_id=abc123...",
+      "doc_url": "http://localhost:9000/kb_abc123/my_document.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20260428%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260428T120000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=...",
       "message": "Uploaded and parsed successfully"
     },
     {
@@ -245,7 +245,7 @@ folder_path=/data/ragflow_files, file_name="产品信息表.xlsx"
       "dataset_id": "def456...",
       "dataset_name": "产品库",
       "parse_status": "FAIL",
-      "doc_url": "http://10.32.1.172:9222/api/v1/document/preview?doc_id=ghi789...",
+      "doc_url": "http://localhost:9000/kb_ghi789/broken_file.xlsx?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
       "message": "Uploaded but parsing FAILED: Parsing failed after 3 attempt(s)"
     }
   ]
@@ -291,7 +291,80 @@ folder_path=/data/ragflow_files, file_name="产品信息表.xlsx"
 
 ---
 
-## 环境变量配置
+## 文件下载 URL — MinIO 直链
+
+### 背景
+
+RAGFlow 内部使用 MinIO 存储所有上传的文档。上传文件后，系统自动生成 **MinIO presigned GET URL**，指向源文件本身（而非 RAGFlow 预览页面）。前端拿到这个 URL 后可以直接使用：
+
+| 文件类型 | 前端用法 |
+|---------|---------|
+| 图片 (png/jpg/webp) | `<img src="{url}">` 直接渲染 |
+| 视频 (mp4/mov/webm) | `<video src="{url}">` 直接播放 |
+| 文档 (pdf/xlsx/docx) | `<a href="{url}">` 直接下载 |
+
+### 原理
+
+```
+文件上传到 RAGFlow
+       │
+       ▼
+RAGFlow 将文件存入 MinIO:
+    bucket  = kb_id (dataset_id)
+    object  = location (filename)
+       │
+       ▼
+construct_doc_url() 从 RAGFlow 文档响应中拿到
+kb_id + location，调用 MinIO SDK 生成
+presigned GET URL（默认 1 小时有效）
+       │
+       ▼
+URL 格式: http://minio:9000/{bucket}/{object}?
+          X-Amz-Algorithm=AWS4-HMAC-SHA256&
+          X-Amz-Credential=...&
+          X-Amz-Signature=...
+```
+
+### 相比 RAGFlow 预览 URL 的优势
+
+| | RAGFlow 预览 URL | MinIO 直链 |
+|---|---|---|
+| 实际内容 | RAGFlow 管理后台 HTML 页面 | 文件的原始二进制内容 |
+| 图片渲染 | 无法直接嵌入 `<img>` | 可直接嵌入 |
+| 视频播放 | 无法直接播放 | 可直接播放 |
+| 文件下载 | 用户需要手动操作 | 浏览器自动下载 |
+| 有效期 | 依赖 RAGFlow 会话 | 可配置（默认 1 小时） |
+| 回退策略 | — | MinIO 不可用时自动回退到预览 URL |
+
+### 配置方式
+
+在 `.env` 中配置 RAGFlow 内置 MinIO 的凭据：
+
+```bash
+# RAGFlow 内置 MinIO 默认凭据
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_SECURE=false
+MINIO_PRESIGNED_EXPIRY_SECONDS=3600
+```
+
+> **注意**：如果不配置 `MINIO_ACCESS_KEY`（留空），系统自动回退到 RAGFlow 预览 URL，不会影响现有功能。
+
+### 获取 RAGFlow 的 MinIO 凭据
+
+RAGFlow docker-compose 部署时自带 MinIO，凭据在其 `.env` 或 `docker-compose.yml` 中：
+
+```yaml
+# ragflow/docker/docker-compose.yml
+minio:
+  image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+  environment:
+    MINIO_ROOT_USER: minioadmin      # → MINIO_ACCESS_KEY
+    MINIO_ROOT_PASSWORD: minioadmin  # → MINIO_SECRET_KEY
+```
+
+## 环境变量完整列表
 
 ```bash
 # RAGFlow 服务
@@ -306,6 +379,13 @@ FILE_KB_NAME=文件库
 GENERAL_KB_NAME=通用库
 PROGRAM_KB_NAME=程序库
 EXPERIENCE_KB_NAME=经验库
+
+# MinIO / S3 — RAGFlow 内置 MinIO（用于生成文件下载直链）
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_SECURE=false
+MINIO_PRESIGNED_EXPIRY_SECONDS=3600
 
 # 批量上传限流
 BATCH_UPLOAD_MAX_CONCURRENT=1       # 同时允许的批量上传请求数（排队，建议 1-2）
