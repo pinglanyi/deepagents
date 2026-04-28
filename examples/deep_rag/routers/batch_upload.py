@@ -199,13 +199,6 @@ def _find_file_in_tree(folder: Path, file_name: str) -> Path | None:
     return None
 
 
-def _format_relative(file_path: Path, folder: Path) -> str:
-    """Return a human-readable path relative to *folder*."""
-    try:
-        return str(file_path.relative_to(folder))
-    except ValueError:
-        return str(file_path)
-
 
 
 def _headers(content_type: str | None = None) -> tuple[str, dict[str, str]]:
@@ -588,13 +581,13 @@ async def batch_upload(
     Use ``POST /ragflow/batch-upload/upload`` to send files from the client.
     """
     # ── Resolve manifest ───────────────────────────────────────────────────
-    if manifest_items is not None and manifest_items_path is not None:
+    if req.manifest is not None and req.manifest_path is not None:
         raise HTTPException(status_code=400, detail="Provide manifest OR manifest_path, not both")
-    if manifest_items is None and manifest_items_path is None:
+    if req.manifest is None and req.manifest_path is None:
         raise HTTPException(status_code=400, detail="Provide either manifest or manifest_path")
 
-    if manifest_items_path:
-        manifest_path = Path(manifest_items_path).expanduser().resolve()
+    if req.manifest_path:
+        manifest_path = Path(req.manifest_path).expanduser().resolve()
         if not manifest_path.exists():
             raise HTTPException(status_code=400, detail=f"Manifest file not found: {manifest_path}")
         if manifest_path.suffix.lower() != ".json":
@@ -610,7 +603,7 @@ async def batch_upload(
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"Invalid manifest entry: {exc}")
     else:
-        manifest_items = manifest_items
+        manifest_items = req.manifest
 
     base_url, hdrs = _headers()
 
