@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import settings
 from core.database import get_db
 from core.deps import get_current_user
-from memory_manager import MemoryManager
+from core.memory_manager import MemoryManager
 from models.thread import Thread
 from models.user import User
 from schemas.thread import ChatRequest, ChatResponse

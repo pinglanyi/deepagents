@@ -60,7 +60,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["rag_agent", "core", "models", "schemas", "routers", "services"]
-py_modules = ["memory_manager", "context_manager"]
 
 [tool.setuptools.package-data]
 "*" = ["py.typed"]

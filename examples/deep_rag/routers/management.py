@@ -23,8 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import settings
 from core.database import get_db
 from core.deps import get_current_admin, get_current_user
-from context_manager import get_context_tracker
-from memory_manager import MemoryManager
+from core.context_manager import get_context_tracker
+from core.memory_manager import MemoryManager
 from models.user import User
 
 logger = logging.getLogger(__name__)
@@ -170,6 +170,20 @@ def _split_skill_body(content: str) -> tuple[dict[str, Any], str]:
     return metadata, body
 
 
+def _parse_allowed_tools(metadata: dict[str, Any]) -> list[str]:
+    """Parse allowed-tools from SKILL.md YAML frontmatter.
+
+    The Agent Skills spec uses `allowed-tools` (hyphen) as the YAML key.
+    This helper handles both ``allowed-tools`` and ``allowed_tools`` keys.
+    """
+    raw = metadata.get("allowed-tools") or metadata.get("allowed_tools") or ""
+    if isinstance(raw, str):
+        return raw.split()
+    if isinstance(raw, list):
+        return raw
+    return []
+
+
 @router.get(
     "/skills",
     response_model=list[SkillInfo],
@@ -214,11 +228,7 @@ async def get_skill(
         license=metadata.get("license"),
         compatibility=metadata.get("compatibility"),
         metadata=metadata.get("metadata", {}),
-        allowed_tools=(
-            metadata.get("allowed_tools", "").split()
-            if isinstance(metadata.get("allowed_tools"), str)
-            else metadata.get("allowed_tools", [])
-        ),
+        allowed_tools=_parse_allowed_tools(metadata),
         body=body,
     )
 

@@ -12,7 +12,7 @@ Architecture:
 
 Usage::
 
-    from context_manager import create_context_middleware, ContextTracker
+    from core.context_manager import create_context_middleware, ContextTracker
 
     tracker = ContextTracker()
     summ_mw, compact_mw = create_context_middleware(model, backend)

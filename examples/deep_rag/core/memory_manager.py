@@ -12,7 +12,7 @@ the chat endpoints call to inject user-specific memory into each request.
 
 Usage::
 
-    from memory_manager import MemoryManager
+    from core.memory_manager import MemoryManager
 
     mm = MemoryManager(agent_data_dir)
 
