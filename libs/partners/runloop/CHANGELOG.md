@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.5](https://github.com/pinglanyi/deepagents/compare/langchain-runloop==0.0.4...langchain-runloop==0.0.5) (2026-04-29)
+
+
+### Features
+
+* **sdk:** add optional module field to skill frontmatter ([#2976](https://github.com/pinglanyi/deepagents/issues/2976)) ([2a9cd44](https://github.com/pinglanyi/deepagents/commit/2a9cd44f61c6c15bf74c63dff0f3478cdee18d11))
+
+## Changelog
+
 ---
 
 ## Prior Releases
