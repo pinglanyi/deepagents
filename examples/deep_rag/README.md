@@ -93,6 +93,35 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8123 --workers 4
 
 Requires PostgreSQL. Tables are auto-created on startup.
 
+### Option 3 — Docker Compose (recommended for production)
+
+```bash
+docker compose up -d
+```
+
+This starts PostgreSQL and the Deep RAG app together. On first run:
+
+```bash
+cp .env.example .env
+# Edit .env — set SECRET_KEY, RAGFLOW_API_KEY, DEEP_RAG_API_KEY
+# DATABASE_URL is auto-configured to point at the compose postgres service.
+docker compose up -d
+```
+
+**Data persistence** (both volumes survive `docker compose down`):
+
+| Volume | Path | Content |
+|--------|------|---------|
+| `agent_data` | `/app/agent_data` | Global + per-user `AGENTS.md` long-term memory, uploaded files |
+| `pgdata` | `/var/lib/postgresql/data` | User accounts, threads, conversation checkpoints |
+
+To wipe everything: `docker compose down -v`.
+
+**RAGFlow connectivity:** If RAGFlow runs on the host machine, set
+`RAGFLOW_BASE_URL=http://host.docker.internal:9380` (macOS/Windows) or
+use `--add-host host.docker.internal:host-gateway` (Linux).
+Alternatively, add RAGFlow to the same compose network.
+
 ---
 
 ## API overview
@@ -278,6 +307,9 @@ Two levels, both persisted to disk via `FilesystemBackend`:
 Global memory is loaded into the system prompt at startup. Personal memory is injected
 at conversation start via `<user_memory>` tags. The agent updates memory with
 `read_file()` + `edit_file()` — never `write_file()`.
+
+Both are stored under `AGENT_DATA_DIR` on disk. In Docker Compose the `agent_data`
+named volume ensures memory survives container restarts and `docker compose down`.
 
 ### Conversation history
 

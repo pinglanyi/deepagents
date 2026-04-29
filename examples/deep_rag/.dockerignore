@@ -1,0 +1,31 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+.venv
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Agent data (mounted as volume at runtime)
+agent_data/
+
+# Environment (set via docker-compose / --env-file)
+.env
+
+# IDE / VCS
+.git
+.gitignore
+.idea/
+.vscode/
+
+# LangGraph local API state
+.langgraph_api/
+
+# Docs / README (not needed at runtime)
+README*.md
+docs/
+
+# Test / dev
+tests/

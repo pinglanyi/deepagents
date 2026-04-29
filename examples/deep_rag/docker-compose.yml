@@ -1,0 +1,61 @@
+# Deep RAG — Multi-user Backend
+# =====================================================================
+# Start everything:
+#     docker compose up -d
+#
+# First-time setup (create .env if not present):
+#     cp .env.example .env
+#     # Edit .env — at minimum set SECRET_KEY, RAGFLOW_API_KEY, LLM keys
+#
+# View logs:
+#     docker compose logs -f deep-rag
+#
+# Tear down (keep volumes):
+#     docker compose down
+# Tear down + wipe all data:
+#     docker compose down -v
+# =====================================================================
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: deeprag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d deeprag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # ── Deep RAG App ──────────────────────────────────────────────────────
+  deep-rag:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    env_file:
+      - .env
+    environment:
+      # Override DATABASE_URL to point at the compose postgres service.
+      # If .env already has the correct host, this is a no-op safeguard.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/deeprag
+      # AGENT_DATA_DIR is handled by the Dockerfile ENV + volume mount below.
+    volumes:
+      - agent_data:/app/agent_data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+# ── Named volumes (persistent across restarts / down) ──────────────────────
+volumes:
+  pgdata:       # PostgreSQL data
+  agent_data:   # AGENTS.md long-term memory, skills cache, uploaded files
