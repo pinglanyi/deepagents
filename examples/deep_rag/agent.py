@@ -17,6 +17,16 @@ Persistence:
         uv pip install ".[postgres]"
       DO NOT pass a custom checkpointer here — pass it via langgraph.json instead.
 
+Skills:
+  - RAG-specific skills are loaded from ./skills/ directory via SkillsMiddleware.
+  - Available skills: rag-search, knowledge-base, troubleshooting
+  - Skills follow progressive disclosure — names + descriptions in system prompt,
+    full instructions loaded on demand via read_file.
+
+Context Management:
+  - Automatic summarization via SummarizationMiddleware (built into create_deep_agent)
+  - Manual compaction via compact_conversation tool (SummarizationToolMiddleware)
+
 Usage:
   uv run langgraph dev --port 8122   # LangGraph Studio
   uv run agent.py                    # interactive terminal
@@ -30,6 +40,10 @@ from langchain_openai import ChatOpenAI
 
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
+from deepagents.middleware.summarization import (
+    SummarizationToolMiddleware,
+    create_summarization_middleware,
+)
 
 from rag_agent.prompts import (
     DEEP_RAG_ANSWER_FORMAT,
@@ -64,6 +78,12 @@ if not _agents_md.exists():
 backend = FilesystemBackend(root_dir=AGENT_DATA_DIR, virtual_mode=True)
 
 # ---------------------------------------------------------------------------
+# Skills — RAG-specific skills loaded from ./skills/
+# ---------------------------------------------------------------------------
+
+_skills_dir = (Path(__file__).parent / "skills").resolve()
+
+# ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 
@@ -86,6 +106,13 @@ if _base_url:
 model = ChatOpenAI(**model_kwargs)
 
 # ---------------------------------------------------------------------------
+# Context management — manual compaction tool
+# ---------------------------------------------------------------------------
+
+_summ_mw = create_summarization_middleware(model, backend)
+_compact_mw = SummarizationToolMiddleware(_summ_mw)
+
+# ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
 
@@ -94,10 +121,10 @@ agent = create_deep_agent(
     tools=[ragflow_list_datasets, ragflow_retrieve, get_next_chunks],
     system_prompt=SYSTEM_PROMPT,
     backend=backend,
+    skills=[str(_skills_dir)],
     memory=["/AGENTS.md"],
+    middleware=[_compact_mw],
     # No checkpointer here — LangGraph Platform manages it automatically.
     # langgraph dev [inmem]: in-memory SQLite per thread_id (lost on restart).
     # For persistent conversation history: set POSTGRES_URI in .env.
 )
-
-

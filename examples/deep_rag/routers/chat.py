@@ -1,4 +1,9 @@
-"""Chat router — invoke the agent and manage per-user thread state."""
+"""Chat router — invoke the agent with per-user memory injection.
+
+Each chat request injects the user's personal memory (from
+``/users/{user_id}/AGENTS.md``) into the agent invocation alongside the
+global memory loaded at startup.
+"""
 
 from __future__ import annotations
 
@@ -15,12 +20,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import settings
 from core.database import get_db
 from core.deps import get_current_user
+from memory_manager import MemoryManager
 from models.thread import Thread
 from models.user import User
 from schemas.thread import ChatRequest, ChatResponse
 from services.agent import get_agent
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+# Per-user memory manager — shares the same data_dir as the agent backend
+_memory_manager = MemoryManager(settings.agent_data_dir)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -34,6 +43,33 @@ def _extract_text(content: Any) -> str:
             p.get("text", "") if isinstance(p, dict) else str(p) for p in content
         )
     return str(content)
+
+
+def _build_memory_augmented_messages(
+    user: User,
+    original_message: str,
+) -> list[dict[str, Any]]:
+    """Inject per-user memory context into the first user message.
+
+    The memory context is prepended so the agent sees it as persistent
+    context from previous conversations.
+    """
+    user_id = str(user.id)
+    _memory_manager.ensure_user_memory(user_id, user.email)
+
+    memory_ctx = _memory_manager.build_memory_context(user_id)
+    memory_path = _memory_manager.get_user_memory_path(user_id)
+
+    augmented_content = (
+        f"{memory_ctx}\n\n"
+        f"---\n\n"
+        f"Your memory file is at `{memory_path}`. "
+        f"Use read_file('{memory_path}') to read it and "
+        f"edit_file('{memory_path}', ...) to update it.\n\n"
+        f"User message:\n{original_message}"
+    )
+
+    return [{"role": "user", "content": augmented_content}]
 
 
 async def _get_or_create_thread(
@@ -93,8 +129,11 @@ async def chat(
         "recursion_limit": settings.agent_recursion_limit,
     }
 
+    # Inject per-user memory into the message
+    messages = _build_memory_augmented_messages(current_user, req.message)
+
     result = await get_agent().ainvoke(
-        {"messages": [{"role": "user", "content": req.message}]},
+        {"messages": messages},
         config=config,
     )
 
@@ -132,6 +171,9 @@ async def chat_stream(
         "recursion_limit": settings.agent_recursion_limit,
     }
 
+    # Inject per-user memory into the message
+    messages = _build_memory_augmented_messages(current_user, req.message)
+
     def sse(data: dict) -> str:
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -140,7 +182,7 @@ async def chat_stream(
 
         try:
             async for event in get_agent().astream_events(
-                {"messages": [{"role": "user", "content": req.message}]},
+                {"messages": messages},
                 config=config,
                 version="v2",
             ):

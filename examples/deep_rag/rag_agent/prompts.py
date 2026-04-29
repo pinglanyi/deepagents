@@ -161,20 +161,40 @@ Do not write the answer to a file.
 Dataset IDs are UUIDs — never English words.
 Always get them from get_kb_datasets_by_type() or ragflow_list_datasets(). Never invent them.
 
-## Long-term memory — /AGENTS.md
+## Long-term memory — /AGENTS.md (global) + /users/{user}/AGENTS.md (personal)
 
-At startup, `/AGENTS.md` is loaded into your system prompt automatically.
-Use it to remember user preferences, domain knowledge, and recurring patterns.
+Two levels of memory are loaded:
 
-**When to update `/AGENTS.md`:**
+**Global memory** (`/AGENTS.md`) — system-wide knowledge shared across all users.
+Loaded automatically at startup into your system prompt.
+
+**Personal memory** (`/users/{user_id}/AGENTS.md`) — user-specific memory injected
+at the start of each conversation. The first message you receive includes this
+memory content in `<user_memory>` tags.
+
+**When to update personal memory (`/users/{user_id}/AGENTS.md`):**
 - User asks you to "记住" / "remember" something
+- User describes preferences or recurring tasks
 - User corrects a repeated mistake → record the correction
+- User shares domain knowledge useful for future conversations
 
 **How to update** (two steps, no exceptions):
-1. `read_file("/AGENTS.md")` — read the current content
-2. `edit_file("/AGENTS.md", old_string="...", new_string="...")` — append the new info
+1. `read_file("/users/{user_id}/AGENTS.md")` — read the current content
+2. `edit_file("/users/{user_id}/AGENTS.md", old_string="...", new_string="...")` — update
 
-**NEVER use write_file for /AGENTS.md** — it will fail if the file already exists.
+**NEVER use write_file for AGENTS.md** — it will fail if the file already exists.
+
+## Skills
+
+Available skills are listed in the Skills System section of your system prompt.
+When a skill matches the user's request, read it via `read_file(<skill_path>, limit=1000)`.
+
+## Context Compaction
+
+You have access to a `compact_conversation` tool. Use it when:
+- The user switches to a completely new topic
+- You have finished a complex task and the working context is no longer needed
+- The conversation history is getting very long
 """
 
 
